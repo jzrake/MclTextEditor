@@ -91,7 +91,8 @@ void mcl::TextLayout::removeCharacter (int row, int col)
 
 void mcl::TextLayout::insertText (int row, int col, const juce::String& text)
 {
-
+    const auto& line = lines[row];
+    lines.set (row, line.substring (0, col) + text + line.substring (col));
 }
 
 void mcl::TextLayout::clear()
@@ -335,12 +336,25 @@ bool mcl::TextEditor::insertCharacterAtCaret (juce::juce_wchar character)
 
 bool mcl::TextEditor::insertTextAtCaret (const juce::String& text)
 {
-    jassertfalse;
+    const auto lines = StringArray::fromLines (text);
+
+    layout.insertText (caretRow, caretCol, lines[0]);
+    caretCol += text.length();
+
+    for (int n = 1; n < lines.size(); ++n)
+    {
+        caretRow += 1;
+        caretCol = lines[n].length();
+        layout.insertRow (caretRow, lines[n]);
+    }
+    setCaretPosition (caretRow, caretCol);
+    repaint();
     return true;
 }
 
 bool mcl::TextEditor::removeLineAtCaret()
 {
+    jassertfalse;
     return true;
 }
 
@@ -368,7 +382,7 @@ bool mcl::TextEditor::deleteForward()
 
 void mcl::TextEditor::translateView (float dx, float dy)
 {
-    translation.y = jlimit (-layout.getHeight() + getHeight(), 0.f, translation.y + dy);
+    translation.y = jlimit (jmin (-0.f, -layout.getHeight() + getHeight()), 0.f, translation.y + dy);
     setTransform (AffineTransform::translation (translation.x, translation.y));
 }
 
@@ -417,6 +431,8 @@ bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
     if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return moveCaretToLineStart();
     if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return moveCaretToLineEnd();
     if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return deleteForward();
+
+    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0)) return insertTextAtCaret (SystemClipboard::getTextFromClipboard());
 
     if (key.getTextCharacter() >= ' ' || (tabKeyUsed && (key.getTextCharacter() == '\t')))
     {
