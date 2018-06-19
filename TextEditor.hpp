@@ -1,3 +1,13 @@
+/** ============================================================================
+ *
+ * TextEditor.hpp
+ *
+ * Copyright (C) Jonathan Zrake
+ *
+ * You may use, distribute and modify this code under the terms of the GPL3
+ * license.
+ * =============================================================================
+ */
 
 #pragma once
 #define DONT_SET_USING_JUCE_NAMESPACE 1
@@ -48,6 +58,7 @@ public:
 private:
     //==========================================================================
     juce::Array<juce::Rectangle<float>> region;
+    juce::Path regionBoundary;
     juce::AffineTransform transform;
 };
 
@@ -104,7 +115,8 @@ public:
     bool isBinOccupied (int binIndexI, int binIndexJ) const;
     juce::Array<bool> getOccupationMatrix() const;
     juce::Rectangle<float> getGridPatch (int binIndexI, int binIndexJ) const;
-    juce::Path getOutlinePath() const;
+    juce::Array<juce::Line<float>> getListOfBoundaryLines() const;
+    juce::Path getOutlinePath (float cornerSize=3.f) const;
 
 private:
     static juce::Array<float> uniqueValuesOfSortedArray (const juce::Array<float>& X);
@@ -137,7 +149,7 @@ public:
         might have changed.
      */
     void setChangeCallback (std::function<void (juce::Rectangle<float>)> changeCallbackToUse);
-
+    juce::Font getFont() const { return font; }
     void setFont (juce::Font font);
     void appendRow (const juce::String& text);
     void insertRow (int index, const juce::String& text="");
@@ -218,6 +230,7 @@ public:
     TextEditor();
     void setText (const juce::String& text);
     void translateView (float dx, float dy);
+    void scaleView (float scaleFactor);
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
@@ -233,12 +246,13 @@ public:
 
 private:
     //==========================================================================
-    void setViewTransform (const juce::AffineTransform& newTransform);
+    void updateViewTransform();
 
     bool tabKeyUsed = true;
     TextLayout layout;
     ContentSelection selection;
 
+    float viewScaleFactor = 1.f;
     juce::Point<float> translation;
     juce::AffineTransform transform;
 };

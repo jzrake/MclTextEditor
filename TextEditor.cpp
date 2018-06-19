@@ -1,3 +1,14 @@
+/** ============================================================================
+ *
+ * TextEditor.cpp
+ *
+ * Copyright (C) Jonathan Zrake
+ *
+ * You may use, distribute and modify this code under the terms of the GPL3
+ * license.
+ * =============================================================================
+ */
+
 #include "TextEditor.hpp"
 using namespace juce;
 
@@ -46,7 +57,6 @@ void mcl::CaretComponent::timerCallback()
 mcl::HighlightComponent::HighlightComponent()
 {
     setInterceptsMouseClicks (false, false);
-    setPaintingIsUnclipped (true);
 }
 
 void mcl::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionToFill)
@@ -57,6 +67,7 @@ void mcl::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionT
 
         if (! region.isEmpty())
         {
+            regionBoundary = RectangularPatchList (region).getOutlinePath (3.f);
             setVisible (true);
             repaint();
         }
@@ -80,25 +91,29 @@ void mcl::HighlightComponent::clear()
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
+    g.saveState();
+    g.addTransform (transform);
+
+#if true
+    g.setColour (findColour (juce::TextEditor::highlightColourId));
+
+    for (const auto& rect : region)
     {
-        g.saveState();
-        g.addTransform (transform);
-        g.setColour (findColour (juce::TextEditor::highlightColourId));
-        
-        for (const auto& rect : region)
-        {
-            g.fillRect (rect);
-        }
-        
-        auto patchList = RectangularPatchList (region);
-        auto p = patchList.getOutlinePath();
-        auto s = PathStrokeType (4.f);
-        
-        g.setColour (Colours::red);
-        g.strokePath (p, s);
-        
-        g.restoreState();
+        g.fillRect (rect);
     }
+
+#else
+    // Region boundary calculation currently can't handle disjoint patches,
+    // so we're rendering the highlight in the simple way for now.
+
+    g.setColour (findColour (juce::TextEditor::highlightColourId));
+    g.fillPath (regionBoundary);
+
+    g.setColour (findColour (juce::TextEditor::highlightColourId).brighter (0.4f));
+    g.strokePath (regionBoundary, PathStrokeType (1.f));
+#endif
+
+    g.restoreState();
 }
 
 
@@ -159,7 +174,7 @@ void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, in
 
                 for (int n = r0 + 1; n < r1; ++n)
                 {
-                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n))));
+                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n) + 1)));
                 }
             }
             else // for a backward selection
@@ -171,10 +186,10 @@ void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, in
 
                 rectList.add (layout.getGlyphBounds (r0, Range<int> (c0, layout.getNumColumns (r0))));
                 rectList.add (layout.getGlyphBounds (r1, Range<int> (0, c1)));
-                
+
                 for (int n = r0 + 1; n < r1; ++n)
                 {
-                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n))));
+                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n) + 1)));
                 }
             }
         }
@@ -386,7 +401,7 @@ bool mcl::RectangularPatchList::isBinOccupied (int binIndexI, int binIndexJ) con
     return false;
 }
 
-juce::Rectangle<float> mcl::RectangularPatchList::getGridPatch (int binIndexI, int binIndexJ) const
+Rectangle<float> mcl::RectangularPatchList::getGridPatch (int binIndexI, int binIndexJ) const
 {
     auto gridPatch = Rectangle<float>();
     gridPatch.setHorizontalRange (Range<float> (xedges.getUnchecked (binIndexI), xedges.getUnchecked (binIndexI + 1)));
@@ -394,13 +409,13 @@ juce::Rectangle<float> mcl::RectangularPatchList::getGridPatch (int binIndexI, i
     return gridPatch;
 }
 
-juce::Path mcl::RectangularPatchList::getOutlinePath() const
+Array<juce::Line<float>> mcl::RectangularPatchList::getListOfBoundaryLines() const
 {
     auto matrix = getOccupationMatrix();
     auto ni = xedges.size() - 1;
     auto nj = yedges.size() - 1;
-    auto p = Path();
-    
+    auto lines = Array<Line<float>>();
+
     for (int i = 0; i < ni; ++i)
     {
         for (int j = 0; j < nj; ++j)
@@ -411,30 +426,82 @@ juce::Path mcl::RectangularPatchList::getOutlinePath() const
                 bool R = i == ni - 1 || ! matrix.getUnchecked (nj * (i + 1) + j);
                 bool T = j == 0      || ! matrix.getUnchecked (nj * i + (j - 1));
                 bool B = j == nj - 1 || ! matrix.getUnchecked (nj * i + (j + 1));
-                
+
                 if (L)
                 {
-                    p.startNewSubPath (xedges.getUnchecked (i), yedges.getUnchecked (j + 0));
-                    p.lineTo          (xedges.getUnchecked (i), yedges.getUnchecked (j + 1));
+                    auto p0 = Point<float> (xedges.getUnchecked (i), yedges.getUnchecked (j + 0));
+                    auto p1 = Point<float> (xedges.getUnchecked (i), yedges.getUnchecked (j + 1));
+                    lines.add (Line<float> (p0, p1));
                 }
                 if (R)
                 {
-                    p.startNewSubPath (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 0));
-                    p.lineTo          (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                    auto p0 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 0));
+                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                    lines.add (Line<float> (p0, p1));
                 }
                 if (T)
                 {
-                    p.startNewSubPath (xedges.getUnchecked (i + 0), yedges.getUnchecked (j));
-                    p.lineTo          (xedges.getUnchecked (i + 1), yedges.getUnchecked (j));
+                    auto p0 = Point<float> (xedges.getUnchecked (i + 0), yedges.getUnchecked (j));
+                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j));
+                    lines.add (Line<float> (p0, p1));
                 }
                 if (B)
                 {
-                    p.startNewSubPath (xedges.getUnchecked (i + 0), yedges.getUnchecked (j + 1));
-                    p.lineTo          (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                    auto p0 = Point<float> (xedges.getUnchecked (i + 0), yedges.getUnchecked (j + 1));
+                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                    lines.add (Line<float> (p0, p1));
                 }
             }
         }
     }
+    return lines;
+}
+
+Path mcl::RectangularPatchList::getOutlinePath (float cornerSize) const
+{
+    auto p = Path();
+    auto lines = getListOfBoundaryLines();
+
+    if (lines.isEmpty())
+    {
+        return p;
+    }
+
+    auto findOtherLineWithEndpoint = [&lines] (Line<float> ab)
+    {
+        for (const auto& line : lines)
+        {
+            if (! (line == ab || line == ab.reversed()))
+            {
+                // If the line starts on b, then return it.
+                if (line.getStart() == ab.getEnd())
+                {
+                    return line;
+                }
+                // If the line ends on b, then reverse and return it.
+                if (line.getEnd() == ab.getEnd())
+                {
+                    return line.reversed();
+                }
+            }
+        }
+        return Line<float>();
+    };
+
+    auto currentLine = lines.getFirst();
+    p.startNewSubPath (currentLine.withShortenedStart (cornerSize).getStart());
+
+    do {
+        auto nextLine = findOtherLineWithEndpoint (currentLine);
+
+        p.lineTo (currentLine.withShortenedEnd (cornerSize).getEnd());
+        p.quadraticTo (nextLine.getStart(), nextLine.withShortenedStart (cornerSize).getStart());
+
+        currentLine = nextLine;
+    } while (currentLine != lines.getFirst());
+
+    p.closeSubPath();
+
     return p;
 }
 
@@ -443,9 +510,9 @@ juce::Array<bool> mcl::RectangularPatchList::getOccupationMatrix() const
     auto matrix = Array<bool>();
     auto ni = xedges.size() - 1;
     auto nj = yedges.size() - 1;
-    
+
     matrix.resize (ni * nj);
-    
+
     for (int i = 0; i < ni; ++i)
     {
         for (int j = 0; j < nj; ++j)
@@ -657,10 +724,7 @@ Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (Point<float> positi
 
 Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, int col) const
 {
-    auto line = lines[row] + " ";
-    GlyphArrangement glyphs;
-    glyphs.addLineOfText (font, line, 0.f, getVerticalRangeForRow (row).getEnd());
-    return glyphs.getBoundingBox (jlimit (0, line.length() - 1, col), 1, true);
+    return getGlyphBounds (row, Range<int> (col, col + 1));
 }
 
 juce::Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, juce::Range<int> columnRange) const
@@ -668,8 +732,12 @@ juce::Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, juce::Range<int
     auto line = lines[row] + " ";
     GlyphArrangement glyphs;
     glyphs.addLineOfText (font, line, 0.f, getVerticalRangeForRow (row).getEnd());
-    return glyphs.getBoundingBox (jlimit (0, line.length() - 1, columnRange.getStart()),
-                                  columnRange.getLength(), true);
+
+    auto start = jlimit (0, line.length() - 1, columnRange.getStart());
+    auto box = glyphs.getBoundingBox (start, columnRange.getLength(), true);
+
+    // box.setVerticalRange (getVerticalRangeForRow (row));
+    return box;
 }
 
 juce::GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row) const
@@ -686,7 +754,7 @@ GlyphArrangement mcl::TextLayout::getGlyphsInside (Rectangle<float> area) const
 
     for (int n = range.getStart(); n < range.getEnd(); ++n)
     {
-        glyphs.addGlyphArrangement (getGlyphsForRow(n));
+        glyphs.addGlyphArrangement (getGlyphsForRow (n));
     }
     return glyphs;
 }
@@ -713,6 +781,11 @@ Range<float> mcl::TextLayout::getHorizontalRangeForRow (int row) const
     return getGlyphsForRow (row).getBoundingBox (0, -1, true).getHorizontalRange();
 }
 
+float mcl::TextLayout::getHeight() const
+{
+    return getVerticalRangeForRow (getNumRows() - 1).getEnd();
+}
+
 Rectangle<float> mcl::TextLayout::getBounds() const
 {
     int numRows = getNumRows();
@@ -732,18 +805,13 @@ Rectangle<float> mcl::TextLayout::getBounds() const
     return bounds;
 }
 
-float mcl::TextLayout::getHeight() const
-{
-    return getVerticalRangeForRow (getNumRows() - 1).getEnd();
-}
-
 
 
 
 //==============================================================================
 mcl::TextEditor::TextEditor() : selection (layout)
 {
-    layout.setFont (Font ("Monaco", 32, 0));
+    layout.setFont (Font ("Monaco", 12, 0));
     layout.setChangeCallback ([this] (Rectangle<float> area)
     {
         if (area.isEmpty())
@@ -751,6 +819,9 @@ mcl::TextEditor::TextEditor() : selection (layout)
         else
             repaint (area.transformedBy (transform).getSmallestIntegerContainer());
     });
+
+    translation.x = 10.f; // left indent
+    updateViewTransform();
 
     selection.setCaretPosition (0, 0);
     addAndMakeVisible (selection);
@@ -772,12 +843,18 @@ void mcl::TextEditor::setText (const String& text)
 void mcl::TextEditor::translateView (float dx, float dy)
 {
     translation.y = jlimit (jmin (-0.f, -layout.getHeight() + getHeight()), 0.f, translation.y + dy);
-    setViewTransform (AffineTransform::translation (translation.x, translation.y));
+    updateViewTransform();
 }
 
-void mcl::TextEditor::setViewTransform (const juce::AffineTransform& newTransform)
+void mcl::TextEditor::scaleView (float scaleFactor)
 {
-    transform = newTransform;
+    viewScaleFactor *= scaleFactor;
+    updateViewTransform();
+}
+
+void mcl::TextEditor::updateViewTransform()
+{
+    transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
     selection.setViewTransform (transform);
     repaint();
 }
@@ -827,6 +904,7 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
 
 void mcl::TextEditor::mouseMagnify (const juce::MouseEvent& e, float scaleFactor)
 {
+    scaleView (scaleFactor);
 }
 
 bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
