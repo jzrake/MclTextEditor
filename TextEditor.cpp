@@ -46,25 +46,44 @@ void mcl::CaretComponent::timerCallback()
 mcl::HighlightComponent::HighlightComponent()
 {
     setInterceptsMouseClicks (false, false);
+    setPaintingIsUnclipped (true);
 }
 
-void mcl::HighlightComponent::setSelectedRegion (RectangleList<float> region)
+void mcl::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionToFill)
 {
-    outline.clear();
-    outline.addRoundedRectangle (region.getBounds(), 3.f);
+    if (regionToFill != region)
+    {
+        region = regionToFill;
+        repaint();
+    }
+}
+
+void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& viewTransformToUse)
+{
+    transform = viewTransformToUse;
     repaint();
 }
 
 void mcl::HighlightComponent::clear()
 {
-    outline.clear();
-    repaint();
+    if (! region.isEmpty())
+    {
+        region.clear();
+        repaint();
+    }
 }
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
+    g.saveState();
+    g.addTransform (transform);
     g.setColour (findColour (juce::TextEditor::highlightColourId));
-    g.fillPath (outline);
+
+    for (const auto& rect : region)
+    {
+        g.fillRect (rect);
+    }
+    g.restoreState();
 }
 
 
@@ -78,6 +97,12 @@ mcl::ContentSelection::ContentSelection (TextLayout& layout) : layout (layout)
     addAndMakeVisible (caret);
 }
 
+void mcl::ContentSelection::setViewTransform (const AffineTransform& transform)
+{
+    caret.setTransform (transform);
+    highlight.setViewTransform (transform);
+}
+
 void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, int startCol)
 {
     caretRow = row;
@@ -85,25 +110,66 @@ void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, in
     selectionStartRow = startRow == -1 ? row : startRow;
     selectionStartCol = startCol == -1 ? col : startCol;
 
-    jassert (selectionStartCol <= caretCol);
-    jassert (selectionStartRow <= caretRow);
-
     caret.setBounds (layout.getGlyphBounds (row, col)
                       .getSmallestIntegerContainer()
                       .removeFromLeft (2)
                       .expanded (0, 3));
     caret.showAndResetPhase();
 
-    if (selectionStartCol == caretCol)
+    if (selectionStartRow == caretRow && selectionStartCol == caretCol)
     {
         highlight.clear();
     }
     else
     {
-        auto rectList = RectangleList<float>();
-        rectList.add (layout.getGlyphBounds (caretRow, Range<int> (selectionStartCol, caretCol)));
+        auto rectList = Array<Rectangle<float>>();
+
+        if (caretRow == selectionStartRow)
+        {
+            int c0 = jmin (selectionStartCol, caretCol);
+            int c1 = jmax (selectionStartCol, caretCol);
+            rectList.add (layout.getGlyphBounds (caretRow, Range<int> (c0, c1)));
+        }
+        else
+        {
+            if (caretRow > selectionStartRow) // for a forward selection
+            {
+                int r0 = selectionStartRow;
+                int c0 = selectionStartCol;
+                int r1 = caretRow;
+                int c1 = caretCol;
+
+                rectList.add (layout.getGlyphBounds (r0, Range<int> (c0, layout.getNumColumns (r0))));
+                rectList.add (layout.getGlyphBounds (r1, Range<int> (0, c1)));
+
+                for (int n = r0 + 1; n < r1; ++n)
+                {
+                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n))));
+                }
+            }
+            else // for a backward selection
+            {
+                int r0 = caretRow;
+                int c0 = caretCol;
+                int r1 = selectionStartRow;
+                int c1 = selectionStartCol;
+
+                rectList.add (layout.getGlyphBounds (r0, Range<int> (c0, layout.getNumColumns (r0))));
+                rectList.add (layout.getGlyphBounds (r1, Range<int> (0, c1)));
+                
+                for (int n = r0 + 1; n < r1; ++n)
+                {
+                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n))));
+                }
+            }
+        }
         highlight.setSelectedRegion (rectList);
     }
+}
+
+void mcl::ContentSelection::extendSelectionTo (int row, int col)
+{
+    setCaretPosition (row, col, selectionStartRow, selectionStartCol);
 }
 
 bool mcl::ContentSelection::moveCaretForward()
@@ -127,7 +193,7 @@ bool mcl::ContentSelection::moveCaretBackward()
 {
     if (caretRow != selectionStartRow || caretCol != selectionStartCol)
     {
-        setCaretPosition (selectionStartRow, selectionStartCol);
+        setCaretPosition (caretRow, caretCol);
     }
     else if (caretCol > 0)
     {
@@ -176,18 +242,36 @@ bool mcl::ContentSelection::moveCaretToLineStart()
 
 bool mcl::ContentSelection::extendSelectionBackward()
 {
-    if (selectionStartCol > 0)
+    if (caretCol > 0)
     {
-        setCaretPosition (caretRow, caretCol, selectionStartRow, selectionStartCol - 1);
+        extendSelectionTo (caretRow, caretCol - 1);
     }
     return true;
 }
 
 bool mcl::ContentSelection::extendSelectionForward()
 {
-    if (caretCol < layout.getNumColumns (caretRow) - 1)
+    if (caretCol < layout.getNumColumns (caretRow))
     {
-        setCaretPosition (caretRow, caretCol + 1, selectionStartRow, selectionStartCol);
+        extendSelectionTo (caretRow, caretCol + 1);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::extendSelectionUp()
+{
+    if (caretRow > 0)
+    {
+        extendSelectionTo (caretRow - 1, caretCol);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::extendSelectionDown()
+{
+    if (caretRow < layout.getNumRows() - 1)
+    {
+        extendSelectionTo (caretRow + 1, caretCol);
     }
     return true;
 }
@@ -385,10 +469,14 @@ Range<int> mcl::TextLayout::findRangeOfColumns (int row, int col, ColumnRangeTyp
 int mcl::TextLayout::findRowContainingVerticalPosition (float y) const
 {
     if (y < getVerticalRangeForRow (0).getStart())
+    {
         return 0;
+    }
 
     else if (y >= getVerticalRangeForRow (getNumRows() - 1).getEnd())
+    {
         return getNumRows();
+    }
 
     for (int n = 0; n < getNumRows(); ++n)
     {
@@ -409,7 +497,7 @@ Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (Point<float> positi
 
     for (int n = 0; n < glyphs.getNumGlyphs(); ++n)
     {
-        if (glyphs.getBoundingBox (n, 1, true).contains (position.x, position.y))
+        if (glyphs.getBoundingBox (n, 1, true).getHorizontalRange().contains (position.x))
         {
             col = n;
             break;
@@ -512,7 +600,7 @@ mcl::TextEditor::TextEditor() : selection (layout)
         if (area.isEmpty())
             repaint();
         else
-            repaint (area.getSmallestIntegerContainer());
+            repaint (area.transformedBy (transform).getSmallestIntegerContainer());
     });
 
     selection.setCaretPosition (0, 0);
@@ -535,13 +623,13 @@ void mcl::TextEditor::setText (const String& text)
 void mcl::TextEditor::translateView (float dx, float dy)
 {
     translation.y = jlimit (jmin (-0.f, -layout.getHeight() + getHeight()), 0.f, translation.y + dy);
-    setTransform (AffineTransform::translation (translation.x, translation.y));
+    setViewTransform (AffineTransform::translation (translation.x, translation.y));
 }
 
-void mcl::TextEditor::setTransform (const juce::AffineTransform& newTransform)
+void mcl::TextEditor::setViewTransform (const juce::AffineTransform& newTransform)
 {
     transform = newTransform;
-    selection.setTransform (transform);
+    selection.setViewTransform (transform);
     repaint();
 }
 
@@ -567,6 +655,15 @@ void mcl::TextEditor::mouseDown (const juce::MouseEvent& e)
     selection.setCaretPosition (rc.x, rc.y);
 }
 
+void mcl::TextEditor::mouseDrag (const juce::MouseEvent& e)
+{
+    if (e.mouseWasDraggedSinceMouseDown())
+    {
+        auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
+        selection.extendSelectionTo (rc.x, rc.y);
+    }
+}
+
 void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
@@ -589,6 +686,8 @@ bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
     {
         if (key.isKeyCode (KeyPress::leftKey )) return selection.extendSelectionBackward();
         if (key.isKeyCode (KeyPress::rightKey)) return selection.extendSelectionForward();
+        if (key.isKeyCode (KeyPress::upKey   )) return selection.extendSelectionUp();
+        if (key.isKeyCode (KeyPress::downKey )) return selection.extendSelectionDown();
     }
     else
     {

@@ -40,12 +40,14 @@ class mcl::HighlightComponent : public juce::Component
 {
 public:
     HighlightComponent();
-    void setSelectedRegion (juce::RectangleList<float> region);
+    void setSelectedRegion (juce::Array<juce::Rectangle<float>> regionToFill);
+    void setViewTransform (const juce::AffineTransform& viewTransformToUse);
     void clear();
     void paint (juce::Graphics& g) override;
 private:
     //==========================================================================
-    juce::Path outline;
+    juce::Array<juce::Rectangle<float>> region;
+    juce::AffineTransform transform;
 };
 
 
@@ -56,7 +58,9 @@ class mcl::ContentSelection : public juce::Component
 {
 public:
     ContentSelection (TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transform);
     void setCaretPosition (int row, int col, int startRow=-1, int startCol=-1);
+    void extendSelectionTo (int row, int col);
     bool moveCaretForward();
     bool moveCaretBackward();
     bool moveCaretUp();
@@ -65,6 +69,8 @@ public:
     bool moveCaretToLineStart();
     bool extendSelectionBackward();
     bool extendSelectionForward();
+    bool extendSelectionUp();
+    bool extendSelectionDown();
     bool insertLineBreakAtCaret();
     bool insertCharacterAtCaret (juce::juce_wchar);
     bool insertTextAtCaret (const juce::String&);
@@ -193,6 +199,7 @@ public:
     void paintOverChildren (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& d) override;
     void mouseMagnify (const juce::MouseEvent& e, float scaleFactor) override;
@@ -201,7 +208,7 @@ public:
 
 private:
     //==========================================================================
-    void setTransform (const juce::AffineTransform& newTransform);
+    void setViewTransform (const juce::AffineTransform& newTransform);
 
     bool tabKeyUsed = true;
     TextLayout layout;
