@@ -51,7 +51,7 @@ mcl::HighlightComponent::HighlightComponent()
 void mcl::HighlightComponent::setSelectedRegion (RectangleList<float> region)
 {
     outline.clear();
-    outline.addRoundedRectangle (region.getBounds(), 2.f);
+    outline.addRoundedRectangle (region.getBounds(), 3.f);
     repaint();
 }
 
@@ -71,19 +71,227 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
 
 
 //==============================================================================
+mcl::ContentSelection::ContentSelection (TextLayout& layout) : layout (layout)
+{
+    setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (highlight);
+    addAndMakeVisible (caret);
+}
+
+void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, int startCol)
+{
+    caretRow = row;
+    caretCol = col;
+    selectionStartRow = startRow == -1 ? row : startRow;
+    selectionStartCol = startCol == -1 ? col : startCol;
+
+    jassert (selectionStartCol <= caretCol);
+    jassert (selectionStartRow <= caretRow);
+
+    caret.setBounds (layout.getGlyphBounds (row, col)
+                      .getSmallestIntegerContainer()
+                      .removeFromLeft (2)
+                      .expanded (0, 3));
+    caret.showAndResetPhase();
+
+    if (selectionStartCol == caretCol)
+    {
+        highlight.clear();
+    }
+    else
+    {
+        auto rectList = RectangleList<float>();
+        rectList.add (layout.getGlyphBounds (caretRow, Range<int> (selectionStartCol, caretCol)));
+        highlight.setSelectedRegion (rectList);
+    }
+}
+
+bool mcl::ContentSelection::moveCaretForward()
+{
+    if (caretRow != selectionStartRow || caretCol != selectionStartCol)
+    {
+        setCaretPosition (caretRow, caretCol);
+    }
+    else if (caretCol < layout.getNumColumns (caretRow))
+    {
+        setCaretPosition (caretRow, caretCol + 1);
+    }
+    else if (caretRow < layout.getNumRows() - 1)
+    {
+        setCaretPosition (jmin (caretRow + 1, layout.getNumRows() - 1), 0);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::moveCaretBackward()
+{
+    if (caretRow != selectionStartRow || caretCol != selectionStartCol)
+    {
+        setCaretPosition (selectionStartRow, selectionStartCol);
+    }
+    else if (caretCol > 0)
+    {
+        setCaretPosition (caretRow, caretCol - 1);
+    }
+    else if (caretRow > 0)
+    {
+        setCaretPosition (jmax (caretRow - 1, 0), layout.getNumColumns (jmax (caretRow - 1, 0)));
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::moveCaretUp()
+{
+    if (caretRow > 0)
+    {
+        setCaretPosition (caretRow - 1, caretCol);
+    }
+    else
+    {
+        setCaretPosition (0, 0);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::moveCaretDown()
+{
+    if (caretRow < layout.getNumRows() - 1)
+    {
+        setCaretPosition (caretRow + 1, caretCol);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::moveCaretToLineEnd()
+{
+    setCaretPosition (caretRow, layout.getNumColumns (caretRow));
+    return true;
+}
+
+bool mcl::ContentSelection::moveCaretToLineStart()
+{
+    setCaretPosition (caretRow, 0);
+    return true;
+}
+
+bool mcl::ContentSelection::extendSelectionBackward()
+{
+    if (selectionStartCol > 0)
+    {
+        setCaretPosition (caretRow, caretCol, selectionStartRow, selectionStartCol - 1);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::extendSelectionForward()
+{
+    if (caretCol < layout.getNumColumns (caretRow) - 1)
+    {
+        setCaretPosition (caretRow, caretCol + 1, selectionStartRow, selectionStartCol);
+    }
+    return true;
+}
+
+bool mcl::ContentSelection::insertLineBreakAtCaret()
+{
+    layout.breakRowAtColumn (caretRow, caretCol);
+    setCaretPosition (caretRow + 1, 0);
+    return true;
+}
+
+bool mcl::ContentSelection::insertCharacterAtCaret (juce::juce_wchar character)
+{
+    layout.insertCharacter (caretRow, caretCol, character);
+    moveCaretForward();
+    return true;
+}
+
+bool mcl::ContentSelection::insertTextAtCaret (const juce::String& text)
+{
+    const auto lines = StringArray::fromLines (text);
+
+    layout.insertText (caretRow, caretCol, lines[0]);
+    caretCol += text.length();
+
+    for (int n = 1; n < lines.size(); ++n)
+    {
+        caretRow += 1;
+        caretCol = lines[n].length();
+        layout.insertRow (caretRow, lines[n]);
+    }
+    setCaretPosition (caretRow, caretCol);
+    return true;
+}
+
+bool mcl::ContentSelection::removeLineAtCaret()
+{
+    jassertfalse;
+    return true;
+}
+
+bool mcl::ContentSelection::deleteBackward()
+{
+    if (caretCol == 0 && caretRow > 0)
+    {
+        layout.joinRowWithPrevious (caretRow);
+    }
+    else
+    {
+        layout.removeCharacter (caretRow, caretCol - 1);
+    }
+    moveCaretBackward();
+    return true;
+}
+
+bool mcl::ContentSelection::deleteForward()
+{
+    layout.removeCharacter (caretRow, caretCol);
+    return true;
+}
+
+void mcl::ContentSelection::setSelectionToColumnRange (int row, juce::Range<int> columnRange)
+{
+    setCaretPosition (row, columnRange.getEnd(), row, columnRange.getStart());
+}
+
+void mcl::ContentSelection::resized()
+{
+    highlight.setBounds (getLocalBounds());
+}
+
+
+
+
+//==============================================================================
+mcl::TextLayout::TextLayout()
+{
+    changeCallback = [] (auto) {};
+}
+
+void mcl::TextLayout::setChangeCallback (std::function<void (juce::Rectangle<float>)> changeCallbackToUse)
+{
+    if (! (changeCallback = changeCallbackToUse))
+    {
+        changeCallbackToUse = [] (auto) {};
+    }
+}
+
 void mcl::TextLayout::setFont (juce::Font newFont)
 {
     font = newFont;
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::appendRow (const juce::String& text)
 {
     lines.add (text);
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::insertRow (int index, const juce::String& text)
 {
     lines.insert (index, text);
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::breakRowAtColumn (int row, int col)
@@ -92,6 +300,7 @@ void mcl::TextLayout::breakRowAtColumn (int row, int col)
     auto lineB = lines[row].substring (col);
     lines.set (row, lineA);
     lines.insert (row + 1, lineB);
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::joinRowWithPrevious (int row)
@@ -99,34 +308,40 @@ void mcl::TextLayout::joinRowWithPrevious (int row)
     jassert (row != 0);
     lines.set (row - 1, lines[row - 1] + lines[row]);
     lines.remove (row);
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::removeRow (int index)
 {
     lines.remove (index);
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::insertCharacter (int row, int col, juce::juce_wchar character)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + character + line.substring (col));
+    changeCallback (getGlyphBounds (row, Range<int> (col, getNumColumns (row))));
 }
 
 void mcl::TextLayout::removeCharacter (int row, int col)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + line.substring (col + 1));
+    changeCallback (getGlyphBounds (row, Range<int> (col, getNumColumns (row))));
 }
 
 void mcl::TextLayout::insertText (int row, int col, const juce::String& text)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + text + line.substring (col));
+    changeCallback (getGlyphBounds (row, Range<int> (col, getNumColumns (row))));
 }
 
 void mcl::TextLayout::clear()
 {
     lines.clear();
+    changeCallback (Rectangle<float>());
 }
 
 int mcl::TextLayout::getNumRows() const
@@ -289,13 +504,19 @@ float mcl::TextLayout::getHeight() const
 
 
 //==============================================================================
-mcl::TextEditor::TextEditor()
+mcl::TextEditor::TextEditor() : selection (layout)
 {
     layout.setFont (Font ("Monaco", 32, 0));
+    layout.setChangeCallback ([this] (Rectangle<float> area)
+    {
+        if (area.isEmpty())
+            repaint();
+        else
+            repaint (area.getSmallestIntegerContainer());
+    });
 
-    setCaretPosition (0, 0);
-    addAndMakeVisible (highlight);
-    addAndMakeVisible (caret);
+    selection.setCaretPosition (0, 0);
+    addAndMakeVisible (selection);
     setWantsKeyboardFocus (true);
 }
 
@@ -307,155 +528,8 @@ void mcl::TextEditor::setText (const String& text)
     {
         layout.appendRow (line);
     }
-    setCaretPosition (0, 0);
-    highlight.clear();
+    selection.setCaretPosition (0, 0);
     repaint();
-}
-
-void mcl::TextEditor::setCaretPosition (int row, int col)
-{
-    caretRow = row;
-    caretCol = col;
-
-    caret.setBounds (layout.getGlyphBounds (row, col)
-                      .getSmallestIntegerContainer()
-                      .removeFromLeft (2)
-                      .expanded (0, 3));
-
-    caret.showAndResetPhase();
-}
-
-bool mcl::TextEditor::moveCaretForward()
-{
-    if (caretCol < layout.getNumColumns (caretRow))
-    {
-        setCaretPosition (caretRow, caretCol + 1);
-    }
-    else if (caretRow < layout.getNumRows() - 1)
-    {
-        setCaretPosition (jmin (caretRow + 1, layout.getNumRows() - 1), 0);
-    }
-    highlight.clear();
-    return true;
-}
-
-bool mcl::TextEditor::moveCaretBackward()
-{
-    if (caretCol > 0)
-    {
-        setCaretPosition (caretRow, caretCol - 1);
-    }
-    else if (caretRow > 0)
-    {
-        setCaretPosition (jmax (caretRow - 1, 0), layout.getNumColumns (jmax (caretRow - 1, 0)));
-    }
-    highlight.clear();
-    return true;
-}
-
-bool mcl::TextEditor::moveCaretUp()
-{
-    if (caretRow > 0)
-    {
-        setCaretPosition (caretRow - 1, caretCol);
-    }
-    else
-    {
-        setCaretPosition (0, 0);
-    }
-    highlight.clear();
-    return true;
-}
-
-bool mcl::TextEditor::moveCaretDown()
-{
-    if (caretRow < layout.getNumRows() - 1)
-    {
-        setCaretPosition (caretRow + 1, caretCol);
-    }
-    highlight.clear();
-    return true;
-}
-
-bool mcl::TextEditor::moveCaretToLineEnd()
-{
-    setCaretPosition (caretRow, layout.getNumColumns (caretRow));
-    highlight.clear();
-    return true;
-}
-
-bool mcl::TextEditor::moveCaretToLineStart()
-{
-    setCaretPosition (caretRow, 0);
-    highlight.clear();
-    return true;
-}
-
-bool mcl::TextEditor::insertLineBreakAtCaret()
-{
-    layout.breakRowAtColumn (caretRow, caretCol);
-    setCaretPosition (caretRow + 1, 0);
-    highlight.clear();
-    repaint();
-    return true;
-}
-
-bool mcl::TextEditor::insertCharacterAtCaret (juce::juce_wchar character)
-{
-    layout.insertCharacter (caretRow, caretCol, character);
-    moveCaretForward();
-    highlight.clear();
-    repaint();
-    return true;
-}
-
-bool mcl::TextEditor::insertTextAtCaret (const juce::String& text)
-{
-    const auto lines = StringArray::fromLines (text);
-
-    layout.insertText (caretRow, caretCol, lines[0]);
-    caretCol += text.length();
-
-    for (int n = 1; n < lines.size(); ++n)
-    {
-        caretRow += 1;
-        caretCol = lines[n].length();
-        layout.insertRow (caretRow, lines[n]);
-    }
-    setCaretPosition (caretRow, caretCol);
-    highlight.clear();
-    repaint();
-    return true;
-}
-
-bool mcl::TextEditor::removeLineAtCaret()
-{
-    jassertfalse;
-    return true;
-}
-
-bool mcl::TextEditor::deleteBackward()
-{
-    if (caretCol == 0 && caretRow > 0)
-    {
-        layout.joinRowWithPrevious (caretRow);
-    }
-    else
-    {
-        layout.removeCharacter (caretRow, caretCol - 1);
-    }
-    moveCaretBackward();
-    highlight.clear();
-    repaint();
-    return true;
-}
-
-bool mcl::TextEditor::deleteForward()
-{
-    layout.removeCharacter (caretRow, caretCol);
-    highlight.clear();
-    repaint();
-    return true;
 }
 
 void mcl::TextEditor::translateView (float dx, float dy)
@@ -467,8 +541,7 @@ void mcl::TextEditor::translateView (float dx, float dy)
 void mcl::TextEditor::setTransform (const juce::AffineTransform& newTransform)
 {
     transform = newTransform;
-    caret.setTransform (transform);
-    highlight.setTransform (transform);
+    selection.setTransform (transform);
     repaint();
 }
 
@@ -485,23 +558,20 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
 
 void mcl::TextEditor::resized()
 {
-    highlight.setBounds (getLocalBounds());
+    selection.setBounds (getLocalBounds());
 }
 
 void mcl::TextEditor::mouseDown (const juce::MouseEvent& e)
 {
     auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
-    setCaretPosition (rc.x, rc.y);
-    highlight.clear();
+    selection.setCaretPosition (rc.x, rc.y);
 }
 
 void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
     auto colRange = layout.findRangeOfColumns (rc.x, rc.y, TextLayout::ColumnRangeType::word);
-    auto rectList = RectangleList<float>();
-    rectList.add (layout.getGlyphBounds (rc.x, colRange));
-    highlight.setSelectedRegion (rectList);
+    selection.setSelectionToColumnRange (rc.x, colRange);
 }
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
@@ -515,22 +585,30 @@ void mcl::TextEditor::mouseMagnify (const juce::MouseEvent& e, float scaleFactor
 
 bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
 {
-    if (key.isKeyCode (KeyPress::backspaceKey)) return deleteBackward();
-    if (key.isKeyCode (KeyPress::leftKey     )) return moveCaretBackward();
-    if (key.isKeyCode (KeyPress::rightKey    )) return moveCaretForward();
-    if (key.isKeyCode (KeyPress::upKey       )) return moveCaretUp();
-    if (key.isKeyCode (KeyPress::downKey     )) return moveCaretDown();
-    if (key.isKeyCode (KeyPress::returnKey   )) return insertLineBreakAtCaret();
+    if (key.getModifiers().isShiftDown())
+    {
+        if (key.isKeyCode (KeyPress::leftKey )) return selection.extendSelectionBackward();
+        if (key.isKeyCode (KeyPress::rightKey)) return selection.extendSelectionForward();
+    }
+    else
+    {
+        if (key.isKeyCode (KeyPress::backspaceKey)) return selection.deleteBackward();
+        if (key.isKeyCode (KeyPress::leftKey     )) return selection.moveCaretBackward();
+        if (key.isKeyCode (KeyPress::rightKey    )) return selection.moveCaretForward();
+        if (key.isKeyCode (KeyPress::upKey       )) return selection.moveCaretUp();
+        if (key.isKeyCode (KeyPress::downKey     )) return selection.moveCaretDown();
+        if (key.isKeyCode (KeyPress::returnKey   )) return selection.insertLineBreakAtCaret();
+    }
 
-    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return moveCaretToLineStart();
-    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return moveCaretToLineEnd();
-    if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return deleteForward();
+    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return selection.moveCaretToLineStart();
+    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return selection.moveCaretToLineEnd();
+    if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return selection.deleteForward();
 
-    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0)) return insertTextAtCaret (SystemClipboard::getTextFromClipboard());
+    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0)) return selection.insertTextAtCaret (SystemClipboard::getTextFromClipboard());
 
     if (key.getTextCharacter() >= ' ' || (tabKeyUsed && (key.getTextCharacter() == '\t')))
     {
-        return insertCharacterAtCaret (key.getTextCharacter());
+        return selection.insertCharacterAtCaret (key.getTextCharacter());
     }
     return false;
 }

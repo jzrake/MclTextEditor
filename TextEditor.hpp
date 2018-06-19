@@ -9,6 +9,7 @@
 namespace mcl {
     class CaretComponent;
     class HighlightComponent;
+    class ContentSelection;
     class TextLayout;
     class TextEditor;
 }
@@ -16,7 +17,7 @@ namespace mcl {
 
 
 
-//==========================================================================
+//==============================================================================
 class mcl::CaretComponent : public juce::Component, private juce::Timer
 {
 public:
@@ -26,7 +27,7 @@ public:
 private:
     float squareWave (float wt) const;
     void timerCallback() override;
-    //======================================================================
+    //==========================================================================
     juce::Colour colour = juce::Colours::lightblue;
     float phase = 0.f;
 };
@@ -34,7 +35,7 @@ private:
 
 
 
-//==========================================================================
+//==============================================================================
 class mcl::HighlightComponent : public juce::Component
 {
 public:
@@ -43,8 +44,45 @@ public:
     void clear();
     void paint (juce::Graphics& g) override;
 private:
-    //======================================================================
+    //==========================================================================
     juce::Path outline;
+};
+
+
+
+
+//==============================================================================
+class mcl::ContentSelection : public juce::Component
+{
+public:
+    ContentSelection (TextLayout& layout);
+    void setCaretPosition (int row, int col, int startRow=-1, int startCol=-1);
+    bool moveCaretForward();
+    bool moveCaretBackward();
+    bool moveCaretUp();
+    bool moveCaretDown();
+    bool moveCaretToLineEnd();
+    bool moveCaretToLineStart();
+    bool extendSelectionBackward();
+    bool extendSelectionForward();
+    bool insertLineBreakAtCaret();
+    bool insertCharacterAtCaret (juce::juce_wchar);
+    bool insertTextAtCaret (const juce::String&);
+    bool removeLineAtCaret();
+    bool deleteBackward();
+    bool deleteForward();
+    void setSelectionToColumnRange (int row, juce::Range<int> columnRange);
+
+    void resized() override;
+
+private:
+    TextLayout& layout;
+    int caretRow = 0;
+    int caretCol = 0;
+    int selectionStartRow = 0;
+    int selectionStartCol = 0;
+    HighlightComponent highlight;
+    CaretComponent caret;
 };
 
 
@@ -59,6 +97,15 @@ public:
         line,
         word,
     };
+    TextLayout();
+
+    /** Use this to suppply a callback to be issued on changes to the layout.
+        The argument will contain the area of the layout that needs
+        repainting. An empty rectangle indicates that the change algorithm
+        has not computed the dirty rectangle, and so any part of the layout
+        might have changed.
+     */
+    void setChangeCallback (std::function<void (juce::Rectangle<float>)> changeCallbackToUse);
 
     void setFont (juce::Font font);
     void appendRow (const juce::String& text);
@@ -123,6 +170,7 @@ public:
     juce::Rectangle<float> getBounds() const;
 
 private:
+    std::function<void (juce::Rectangle<float>)> changeCallback = nullptr;
     float lineSpacing = 1.f;
     juce::Font font;
     juce::StringArray lines; // display lines (not necessarily ending in newlines)
@@ -138,20 +186,6 @@ public:
     //==========================================================================
     TextEditor();
     void setText (const juce::String& text);
-    void setCaretPosition (int row, int col);
-    bool moveCaretForward();
-    bool moveCaretBackward();
-    bool moveCaretUp();
-    bool moveCaretDown();
-    bool moveCaretToLineEnd();
-    bool moveCaretToLineStart();
-    bool insertLineBreakAtCaret();
-    bool insertCharacterAtCaret (juce::juce_wchar);
-    bool insertTextAtCaret (const juce::String&);
-    bool removeLineAtCaret();
-    bool deleteBackward();
-    bool deleteForward();
-
     void translateView (float dx, float dy);
 
     //==========================================================================
@@ -170,11 +204,8 @@ private:
     void setTransform (const juce::AffineTransform& newTransform);
 
     bool tabKeyUsed = true;
-    int caretRow = 0;
-    int caretCol = 0;
     TextLayout layout;
-    CaretComponent caret;
-    HighlightComponent highlight;
+    ContentSelection selection;
 
     juce::Point<float> translation;
     juce::AffineTransform transform;
