@@ -10,6 +10,7 @@ namespace mcl {
     class CaretComponent;
     class HighlightComponent;
     class ContentSelection;
+    class RectangularPatchList;
     class TextLayout;
     class TextEditor;
 }
@@ -89,6 +90,30 @@ private:
     int selectionStartCol = 0;
     HighlightComponent highlight;
     CaretComponent caret;
+};
+
+
+
+
+//==============================================================================
+class mcl::RectangularPatchList
+{
+public:
+    RectangularPatchList (const juce::Array<juce::Rectangle<float>>& rectangles);
+    bool checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const;
+    bool isBinOccupied (int binIndexI, int binIndexJ) const;
+    juce::Array<bool> getOccupationMatrix() const;
+    juce::Rectangle<float> getGridPatch (int binIndexI, int binIndexJ) const;
+    juce::Path getOutlinePath() const;
+
+private:
+    static juce::Array<float> uniqueValuesOfSortedArray (const juce::Array<float>& X);
+    static juce::Array<float> getUniqueCoordinatesX (const juce::Array<juce::Rectangle<float>>& rectangles);
+    static juce::Array<float> getUniqueCoordinatesY (const juce::Array<juce::Rectangle<float>>& rectangles);
+
+    juce::Array<juce::Rectangle<float>> rectangles;
+    juce::Array<float> xedges;
+    juce::Array<float> yedges;
 };
 
 

@@ -54,7 +54,12 @@ void mcl::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionT
     if (regionToFill != region)
     {
         region = regionToFill;
-        repaint();
+
+        if (! region.isEmpty())
+        {
+            setVisible (true);
+            repaint();
+        }
     }
 }
 
@@ -69,21 +74,31 @@ void mcl::HighlightComponent::clear()
     if (! region.isEmpty())
     {
         region.clear();
-        repaint();
+        setVisible (false);
     }
 }
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
-    g.saveState();
-    g.addTransform (transform);
-    g.setColour (findColour (juce::TextEditor::highlightColourId));
-
-    for (const auto& rect : region)
     {
-        g.fillRect (rect);
+        g.saveState();
+        g.addTransform (transform);
+        g.setColour (findColour (juce::TextEditor::highlightColourId));
+        
+        for (const auto& rect : region)
+        {
+            g.fillRect (rect);
+        }
+        
+        auto patchList = RectangularPatchList (region);
+        auto p = patchList.getOutlinePath();
+        auto s = PathStrokeType (4.f);
+        
+        g.setColour (Colours::red);
+        g.strokePath (p, s);
+        
+        g.restoreState();
     }
-    g.restoreState();
 }
 
 
@@ -93,7 +108,7 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
 mcl::ContentSelection::ContentSelection (TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (highlight);
+    addChildComponent (highlight);
     addAndMakeVisible (caret);
 }
 
@@ -341,6 +356,140 @@ void mcl::ContentSelection::setSelectionToColumnRange (int row, juce::Range<int>
 void mcl::ContentSelection::resized()
 {
     highlight.setBounds (getLocalBounds());
+}
+
+
+
+
+//==============================================================================
+mcl::RectangularPatchList::RectangularPatchList (const Array<Rectangle<float>>& rectangles)
+: rectangles (rectangles)
+{
+    xedges = getUniqueCoordinatesX (rectangles);
+    yedges = getUniqueCoordinatesY (rectangles);
+}
+
+bool mcl::RectangularPatchList::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
+{
+    return rectangles.getReference (rectangleIndex).intersects (getGridPatch (binIndexI, binIndexJ));
+}
+
+bool mcl::RectangularPatchList::isBinOccupied (int binIndexI, int binIndexJ) const
+{
+    for (int n = 0; n < rectangles.size(); ++n)
+    {
+        if (checkIfRectangleFallsInBin (n, binIndexI, binIndexJ))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+juce::Rectangle<float> mcl::RectangularPatchList::getGridPatch (int binIndexI, int binIndexJ) const
+{
+    auto gridPatch = Rectangle<float>();
+    gridPatch.setHorizontalRange (Range<float> (xedges.getUnchecked (binIndexI), xedges.getUnchecked (binIndexI + 1)));
+    gridPatch.setVerticalRange   (Range<float> (yedges.getUnchecked (binIndexJ), yedges.getUnchecked (binIndexJ + 1)));
+    return gridPatch;
+}
+
+juce::Path mcl::RectangularPatchList::getOutlinePath() const
+{
+    auto matrix = getOccupationMatrix();
+    auto ni = xedges.size() - 1;
+    auto nj = yedges.size() - 1;
+    auto p = Path();
+    
+    for (int i = 0; i < ni; ++i)
+    {
+        for (int j = 0; j < nj; ++j)
+        {
+            if (matrix.getUnchecked (nj * i + j))
+            {
+                bool L = i == 0      || ! matrix.getUnchecked (nj * (i - 1) + j);
+                bool R = i == ni - 1 || ! matrix.getUnchecked (nj * (i + 1) + j);
+                bool T = j == 0      || ! matrix.getUnchecked (nj * i + (j - 1));
+                bool B = j == nj - 1 || ! matrix.getUnchecked (nj * i + (j + 1));
+                
+                if (L)
+                {
+                    p.startNewSubPath (xedges.getUnchecked (i), yedges.getUnchecked (j + 0));
+                    p.lineTo          (xedges.getUnchecked (i), yedges.getUnchecked (j + 1));
+                }
+                if (R)
+                {
+                    p.startNewSubPath (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 0));
+                    p.lineTo          (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                }
+                if (T)
+                {
+                    p.startNewSubPath (xedges.getUnchecked (i + 0), yedges.getUnchecked (j));
+                    p.lineTo          (xedges.getUnchecked (i + 1), yedges.getUnchecked (j));
+                }
+                if (B)
+                {
+                    p.startNewSubPath (xedges.getUnchecked (i + 0), yedges.getUnchecked (j + 1));
+                    p.lineTo          (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                }
+            }
+        }
+    }
+    return p;
+}
+
+juce::Array<bool> mcl::RectangularPatchList::getOccupationMatrix() const
+{
+    auto matrix = Array<bool>();
+    auto ni = xedges.size() - 1;
+    auto nj = yedges.size() - 1;
+    
+    matrix.resize (ni * nj);
+    
+    for (int i = 0; i < ni; ++i)
+    {
+        for (int j = 0; j < nj; ++j)
+        {
+            matrix.setUnchecked (nj * i + j, isBinOccupied (i, j));
+        }
+    }
+    return matrix;
+}
+
+Array<float> mcl::RectangularPatchList::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
+{
+    Array<float> X;
+    
+    for (const auto& rect : rectangles)
+    {
+        X.addUsingDefaultSort (rect.getX());
+        X.addUsingDefaultSort (rect.getRight());
+    }
+    return uniqueValuesOfSortedArray (X);
+}
+
+Array<float> mcl::RectangularPatchList::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
+{
+    Array<float> Y;
+    
+    for (const auto& rect : rectangles)
+    {
+        Y.addUsingDefaultSort (rect.getY());
+        Y.addUsingDefaultSort (rect.getBottom());
+    }
+    return uniqueValuesOfSortedArray (Y);
+}
+
+Array<float> mcl::RectangularPatchList::uniqueValuesOfSortedArray (const Array<float>& X)
+{
+    jassert (! X.isEmpty());
+    Array<float> unique { X.getFirst() };
+    
+    for (const auto& x : X)
+        if (x != unique.getLast())
+            unique.add (x);
+    
+    return unique;
 }
 
 
