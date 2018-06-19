@@ -8,6 +8,7 @@
 
 namespace mcl {
     class CaretComponent;
+    class HighlightComponent;
     class TextLayout;
     class TextEditor;
 }
@@ -33,10 +34,32 @@ private:
 
 
 
+//==========================================================================
+class mcl::HighlightComponent : public juce::Component
+{
+public:
+    HighlightComponent();
+    void setSelectedRegion (juce::RectangleList<float> region);
+    void clear();
+    void paint (juce::Graphics& g) override;
+private:
+    //======================================================================
+    juce::Path outline;
+};
+
+
+
+
 //==============================================================================
 class mcl::TextLayout
 {
 public:
+    enum class ColumnRangeType
+    {
+        line,
+        word,
+    };
+
     void setFont (juce::Font font);
     void appendRow (const juce::String& text);
     void insertRow (int index, const juce::String& text="");
@@ -54,20 +77,29 @@ public:
     /** Get the number of columns in the given row. */
     int getNumColumns (int row) const;
 
+    /** Find a range of columns on the given row, containing the given column. */
+    juce::Range<int> findRangeOfColumns (int row, int col, ColumnRangeType type);
+
     /** Find the row index at the given position. Returns 0 if the position
-     is before the beginning, and getNumRows() if it's past the end.
+        is before the beginning, and getNumRows() if it's past the end.
      */
     int findRowContainingVerticalPosition (float y) const;
 
-    /** Find the row and column index nearest to the given position.
-     */
+    /** Find the row and column index nearest to the given position. */
     juce::Point<int> findRowAndColumnNearestPosition (juce::Point<float> position) const;
 
     /** Return the bounding box for the glyph at the given index.
-     If the index is out of bounds, the bounds will be that of
-     a space character sitting at the end of given row.
+        If the index is out of bounds, the bounds will be that of
+        a space character sitting at the end of row.
      */
     juce::Rectangle<float> getGlyphBounds (int row, int col) const;
+
+    /** Return the bounding box for the glyphs on the given row, and
+        within the given range of columns. The lower index is clipped
+        to zero, and if the upper index is out-of-bounds, the bounds
+        will include a space character sitting at the end of row.
+     */
+    juce::Rectangle<float> getGlyphBounds (int row, juce::Range<int> columnRange) const;
 
     /** Return a glyph arrangement for the given row. */
     juce::GlyphArrangement getGlyphsForRow (int row) const;
@@ -124,8 +156,10 @@ public:
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
+    void paintOverChildren (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& d) override;
     void mouseMagnify (const juce::MouseEvent& e, float scaleFactor) override;
     bool keyPressed (const juce::KeyPress& key) override;
@@ -140,6 +174,7 @@ private:
     int caretCol = 0;
     TextLayout layout;
     CaretComponent caret;
+    HighlightComponent highlight;
 
     juce::Point<float> translation;
     juce::AffineTransform transform;

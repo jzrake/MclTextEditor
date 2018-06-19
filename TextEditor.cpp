@@ -10,6 +10,7 @@ void mcl::CaretComponent::showAndResetPhase()
     phase = 0.f;
     startTimerHz (40);
     setVisible (true);
+    setInterceptsMouseClicks (false, false);
 }
 
 void mcl::CaretComponent::hideAndPause()
@@ -36,6 +37,34 @@ void mcl::CaretComponent::timerCallback()
     phase += 1.6e-1;
     colour = colour.withAlpha (squareWave (phase));
     repaint();
+}
+
+
+
+
+//==============================================================================
+mcl::HighlightComponent::HighlightComponent()
+{
+    setInterceptsMouseClicks (false, false);
+}
+
+void mcl::HighlightComponent::setSelectedRegion (RectangleList<float> region)
+{
+    outline.clear();
+    outline.addRoundedRectangle (region.getBounds(), 2.f);
+    repaint();
+}
+
+void mcl::HighlightComponent::clear()
+{
+    outline.clear();
+    repaint();
+}
+
+void mcl::HighlightComponent::paint (juce::Graphics& g)
+{
+    g.setColour (findColour (juce::TextEditor::highlightColourId));
+    g.fillPath (outline);
 }
 
 
@@ -110,6 +139,34 @@ int mcl::TextLayout::getNumColumns (int row) const
     return lines[row].length();
 }
 
+Range<int> mcl::TextLayout::findRangeOfColumns (int row, int col, ColumnRangeType type)
+{
+    switch (type)
+    {
+        case ColumnRangeType::line:
+        {
+            return Range<int> (0, getNumColumns (row));
+        }
+        case ColumnRangeType::word:
+        {
+            int i0 = col;
+            int i1 = col + 1;
+            const auto& line = lines[row];
+            const auto& p = line.getCharPointer();
+
+            while (i0 > 0 && p[i0 - 1] != ' ')
+            {
+                i0 -= 1;
+            }
+            while (i1 < line.length() && p[i1] != ' ')
+            {
+                i1 += 1;
+            }
+            return Range<int> (i0, i1);
+        }
+    }
+}
+
 int mcl::TextLayout::findRowContainingVerticalPosition (float y) const
 {
     if (y < getVerticalRangeForRow (0).getStart())
@@ -149,11 +206,18 @@ Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (Point<float> positi
 Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, int col) const
 {
     auto line = lines[row] + " ";
-
     GlyphArrangement glyphs;
     glyphs.addLineOfText (font, line, 0.f, getVerticalRangeForRow (row).getEnd());
+    return glyphs.getBoundingBox (jlimit (0, line.length() - 1, col), 1, true);
+}
 
-    return glyphs.getBoundingBox (jmin (col, line.length() - 1), 1, true);
+juce::Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, juce::Range<int> columnRange) const
+{
+    auto line = lines[row] + " ";
+    GlyphArrangement glyphs;
+    glyphs.addLineOfText (font, line, 0.f, getVerticalRangeForRow (row).getEnd());
+    return glyphs.getBoundingBox (jlimit (0, line.length() - 1, columnRange.getStart()),
+                                  columnRange.getLength(), true);
 }
 
 juce::GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row) const
@@ -227,9 +291,10 @@ float mcl::TextLayout::getHeight() const
 //==============================================================================
 mcl::TextEditor::TextEditor()
 {
-    layout.setFont (Font ("Monaco", 12, 0));
+    layout.setFont (Font ("Monaco", 32, 0));
 
     setCaretPosition (0, 0);
+    addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
     setWantsKeyboardFocus (true);
 }
@@ -242,6 +307,8 @@ void mcl::TextEditor::setText (const String& text)
     {
         layout.appendRow (line);
     }
+    setCaretPosition (0, 0);
+    highlight.clear();
     repaint();
 }
 
@@ -268,6 +335,7 @@ bool mcl::TextEditor::moveCaretForward()
     {
         setCaretPosition (jmin (caretRow + 1, layout.getNumRows() - 1), 0);
     }
+    highlight.clear();
     return true;
 }
 
@@ -281,6 +349,7 @@ bool mcl::TextEditor::moveCaretBackward()
     {
         setCaretPosition (jmax (caretRow - 1, 0), layout.getNumColumns (jmax (caretRow - 1, 0)));
     }
+    highlight.clear();
     return true;
 }
 
@@ -294,6 +363,7 @@ bool mcl::TextEditor::moveCaretUp()
     {
         setCaretPosition (0, 0);
     }
+    highlight.clear();
     return true;
 }
 
@@ -303,18 +373,21 @@ bool mcl::TextEditor::moveCaretDown()
     {
         setCaretPosition (caretRow + 1, caretCol);
     }
+    highlight.clear();
     return true;
 }
 
 bool mcl::TextEditor::moveCaretToLineEnd()
 {
     setCaretPosition (caretRow, layout.getNumColumns (caretRow));
+    highlight.clear();
     return true;
 }
 
 bool mcl::TextEditor::moveCaretToLineStart()
 {
     setCaretPosition (caretRow, 0);
+    highlight.clear();
     return true;
 }
 
@@ -322,6 +395,7 @@ bool mcl::TextEditor::insertLineBreakAtCaret()
 {
     layout.breakRowAtColumn (caretRow, caretCol);
     setCaretPosition (caretRow + 1, 0);
+    highlight.clear();
     repaint();
     return true;
 }
@@ -330,6 +404,7 @@ bool mcl::TextEditor::insertCharacterAtCaret (juce::juce_wchar character)
 {
     layout.insertCharacter (caretRow, caretCol, character);
     moveCaretForward();
+    highlight.clear();
     repaint();
     return true;
 }
@@ -348,6 +423,7 @@ bool mcl::TextEditor::insertTextAtCaret (const juce::String& text)
         layout.insertRow (caretRow, lines[n]);
     }
     setCaretPosition (caretRow, caretCol);
+    highlight.clear();
     repaint();
     return true;
 }
@@ -369,6 +445,7 @@ bool mcl::TextEditor::deleteBackward()
         layout.removeCharacter (caretRow, caretCol - 1);
     }
     moveCaretBackward();
+    highlight.clear();
     repaint();
     return true;
 }
@@ -376,6 +453,7 @@ bool mcl::TextEditor::deleteBackward()
 bool mcl::TextEditor::deleteForward()
 {
     layout.removeCharacter (caretRow, caretCol);
+    highlight.clear();
     repaint();
     return true;
 }
@@ -390,24 +468,40 @@ void mcl::TextEditor::setTransform (const juce::AffineTransform& newTransform)
 {
     transform = newTransform;
     caret.setTransform (transform);
+    highlight.setTransform (transform);
     repaint();
 }
 
 void mcl::TextEditor::paint (Graphics& g)
 {
     g.fillAll (findColour (juce::TextEditor::backgroundColourId));
+}
+
+void mcl::TextEditor::paintOverChildren (Graphics& g)
+{
     g.setColour (findColour (juce::TextEditor::textColourId));
     layout.getGlyphsInside (g.getClipBounds().toFloat().transformedBy (transform.inverted())).draw (g, transform);
 }
 
 void mcl::TextEditor::resized()
 {
+    highlight.setBounds (getLocalBounds());
 }
 
 void mcl::TextEditor::mouseDown (const juce::MouseEvent& e)
 {
     auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
     setCaretPosition (rc.x, rc.y);
+    highlight.clear();
+}
+
+void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
+{
+    auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
+    auto colRange = layout.findRangeOfColumns (rc.x, rc.y, TextLayout::ColumnRangeType::word);
+    auto rectList = RectangleList<float>();
+    rectList.add (layout.getGlyphBounds (rc.x, colRange));
+    highlight.setSelectedRegion (rectList);
 }
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
