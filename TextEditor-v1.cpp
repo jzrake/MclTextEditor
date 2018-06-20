@@ -16,7 +16,7 @@ using namespace juce;
 
 
 //==============================================================================
-void mcl::CaretComponent::showAndResetPhase()
+void mclv1::CaretComponent::showAndResetPhase()
 {
     phase = 0.f;
     startTimerHz (40);
@@ -24,26 +24,26 @@ void mcl::CaretComponent::showAndResetPhase()
     setInterceptsMouseClicks (false, false);
 }
 
-void mcl::CaretComponent::hideAndPause()
+void mclv1::CaretComponent::hideAndPause()
 {
     stopTimer();
     setVisible (false);
 }
 
-void mcl::CaretComponent::paint (Graphics &g)
+void mclv1::CaretComponent::paint (Graphics &g)
 {
     g.setColour (colour);
     g.fillRoundedRectangle (getLocalBounds().toFloat(), 2.f);
 }
 
-float mcl::CaretComponent::squareWave (float wt) const
+float mclv1::CaretComponent::squareWave (float wt) const
 {
     const float delta = 0.222f;
     const float A = 1.0;
     return 0.5f + A / 3.14159f * std::atanf (std::cosf (wt) / delta);
 }
 
-void mcl::CaretComponent::timerCallback()
+void mclv1::CaretComponent::timerCallback()
 {
     phase += 1.6e-1;
     colour = colour.withAlpha (squareWave (phase));
@@ -54,12 +54,12 @@ void mcl::CaretComponent::timerCallback()
 
 
 //==============================================================================
-mcl::HighlightComponent::HighlightComponent()
+mclv1::HighlightComponent::HighlightComponent()
 {
     setInterceptsMouseClicks (false, false);
 }
 
-void mcl::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionToFill)
+void mclv1::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionToFill)
 {
     if (regionToFill != region)
     {
@@ -74,13 +74,13 @@ void mcl::HighlightComponent::setSelectedRegion (Array<Rectangle<float>> regionT
     }
 }
 
-void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& viewTransformToUse)
+void mclv1::HighlightComponent::setViewTransform (const juce::AffineTransform& viewTransformToUse)
 {
     transform = viewTransformToUse;
     repaint();
 }
 
-void mcl::HighlightComponent::clear()
+void mclv1::HighlightComponent::clear()
 {
     if (! region.isEmpty())
     {
@@ -89,7 +89,7 @@ void mcl::HighlightComponent::clear()
     }
 }
 
-void mcl::HighlightComponent::paint (juce::Graphics& g)
+void mclv1::HighlightComponent::paint (juce::Graphics& g)
 {
     g.saveState();
     g.addTransform (transform);
@@ -120,20 +120,20 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
 
 
 //==============================================================================
-mcl::ContentSelection::ContentSelection (TextLayout& layout) : layout (layout)
+mclv1::ContentSelection::ContentSelection (TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
     addChildComponent (highlight);
     addAndMakeVisible (caret);
 }
 
-void mcl::ContentSelection::setViewTransform (const AffineTransform& transform)
+void mclv1::ContentSelection::setViewTransform (const AffineTransform& transform)
 {
     caret.setTransform (transform);
     highlight.setViewTransform (transform);
 }
 
-void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, int startCol)
+void mclv1::ContentSelection::setCaretPosition (int row, int col, int startRow, int startCol)
 {
     caretRow = row;
     caretCol = col;
@@ -180,22 +180,22 @@ void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, in
     }
 }
 
-void mcl::ContentSelection::setCaretPosition (juce::Point<int> position)
+void mclv1::ContentSelection::setCaretPosition (juce::Point<int> position)
 {
     setCaretPosition (position.x, position.y);
 }
 
-void mcl::ContentSelection::extendSelectionTo (int row, int col)
+void mclv1::ContentSelection::extendSelectionTo (int row, int col)
 {
     setCaretPosition (row, col, selectionStartRow, selectionStartCol);
 }
 
-bool mcl::ContentSelection::isSelectionEmpty()
+bool mclv1::ContentSelection::isSelectionEmpty()
 {
     return selectionStartRow == caretRow && selectionStartCol == caretCol;
 }
 
-bool mcl::ContentSelection::moveCaretForward()
+bool mclv1::ContentSelection::moveCaretForward()
 {
     if (caretRow != selectionStartRow || caretCol != selectionStartCol)
     {
@@ -212,7 +212,7 @@ bool mcl::ContentSelection::moveCaretForward()
     return true;
 }
 
-bool mcl::ContentSelection::moveCaretBackward()
+bool mclv1::ContentSelection::moveCaretBackward()
 {
     if (caretRow != selectionStartRow || caretCol != selectionStartCol)
     {
@@ -229,7 +229,7 @@ bool mcl::ContentSelection::moveCaretBackward()
     return true;
 }
 
-bool mcl::ContentSelection::moveCaretUp()
+bool mclv1::ContentSelection::moveCaretUp()
 {
     if (caretRow > 0)
     {
@@ -242,7 +242,7 @@ bool mcl::ContentSelection::moveCaretUp()
     return true;
 }
 
-bool mcl::ContentSelection::moveCaretDown()
+bool mclv1::ContentSelection::moveCaretDown()
 {
     if (caretRow < layout.getNumRows() - 1)
     {
@@ -251,19 +251,19 @@ bool mcl::ContentSelection::moveCaretDown()
     return true;
 }
 
-bool mcl::ContentSelection::moveCaretToLineEnd()
+bool mclv1::ContentSelection::moveCaretToLineEnd()
 {
     setCaretPosition (caretRow, layout.getNumColumns (caretRow));
     return true;
 }
 
-bool mcl::ContentSelection::moveCaretToLineStart()
+bool mclv1::ContentSelection::moveCaretToLineStart()
 {
     setCaretPosition (caretRow, 0);
     return true;
 }
 
-bool mcl::ContentSelection::extendSelectionBackward()
+bool mclv1::ContentSelection::extendSelectionBackward()
 {
     if (caretCol > 0)
     {
@@ -272,7 +272,7 @@ bool mcl::ContentSelection::extendSelectionBackward()
     return true;
 }
 
-bool mcl::ContentSelection::extendSelectionForward()
+bool mclv1::ContentSelection::extendSelectionForward()
 {
     if (caretCol < layout.getNumColumns (caretRow))
     {
@@ -281,7 +281,7 @@ bool mcl::ContentSelection::extendSelectionForward()
     return true;
 }
 
-bool mcl::ContentSelection::extendSelectionUp()
+bool mclv1::ContentSelection::extendSelectionUp()
 {
     if (caretRow > 0)
     {
@@ -290,7 +290,7 @@ bool mcl::ContentSelection::extendSelectionUp()
     return true;
 }
 
-bool mcl::ContentSelection::extendSelectionDown()
+bool mclv1::ContentSelection::extendSelectionDown()
 {
     if (caretRow < layout.getNumRows() - 1)
     {
@@ -299,21 +299,21 @@ bool mcl::ContentSelection::extendSelectionDown()
     return true;
 }
 
-bool mcl::ContentSelection::insertLineBreakAtCaret()
+bool mclv1::ContentSelection::insertLineBreakAtCaret()
 {
     layout.breakRowAtColumn (caretRow, caretCol);
     setCaretPosition (caretRow + 1, 0);
     return true;
 }
 
-bool mcl::ContentSelection::insertCharacterAtCaret (juce::juce_wchar character)
+bool mclv1::ContentSelection::insertCharacterAtCaret (juce::juce_wchar character)
 {
     layout.insertCharacter (caretRow, caretCol, character);
     moveCaretForward();
     return true;
 }
 
-bool mcl::ContentSelection::insertTextAtCaret (const juce::String& text)
+bool mclv1::ContentSelection::insertTextAtCaret (const juce::String& text)
 {
     const auto lines = StringArray::fromLines (text);
 
@@ -330,13 +330,13 @@ bool mcl::ContentSelection::insertTextAtCaret (const juce::String& text)
     return true;
 }
 
-bool mcl::ContentSelection::removeLineAtCaret()
+bool mclv1::ContentSelection::removeLineAtCaret()
 {
     jassertfalse;
     return true;
 }
 
-bool mcl::ContentSelection::deleteBackward()
+bool mclv1::ContentSelection::deleteBackward()
 {
     if (isSelectionEmpty())
     {
@@ -359,7 +359,7 @@ bool mcl::ContentSelection::deleteBackward()
     return true;
 }
 
-bool mcl::ContentSelection::deleteForward()
+bool mclv1::ContentSelection::deleteForward()
 {
     if (isSelectionEmpty())
     {
@@ -374,17 +374,17 @@ bool mcl::ContentSelection::deleteForward()
     return true;
 }
 
-void mcl::ContentSelection::setSelectionToColumnRange (int row, juce::Range<int> columnRange)
+void mclv1::ContentSelection::setSelectionToColumnRange (int row, juce::Range<int> columnRange)
 {
     setCaretPosition (row, columnRange.getEnd(), row, columnRange.getStart());
 }
 
-void mcl::ContentSelection::resized()
+void mclv1::ContentSelection::resized()
 {
     highlight.setBounds (getLocalBounds());
 }
 
-juce::Line<int> mcl::ContentSelection::getProperSelectionRange()
+juce::Line<int> mclv1::ContentSelection::getProperSelectionRange()
 {
     if (caretRow == selectionStartRow)
     {
@@ -413,19 +413,19 @@ juce::Line<int> mcl::ContentSelection::getProperSelectionRange()
 
 
 //==============================================================================
-mcl::RectangularPatchList::RectangularPatchList (const Array<Rectangle<float>>& rectangles)
+mclv1::RectangularPatchList::RectangularPatchList (const Array<Rectangle<float>>& rectangles)
 : rectangles (rectangles)
 {
     xedges = getUniqueCoordinatesX (rectangles);
     yedges = getUniqueCoordinatesY (rectangles);
 }
 
-bool mcl::RectangularPatchList::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
+bool mclv1::RectangularPatchList::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
 {
     return rectangles.getReference (rectangleIndex).intersects (getGridPatch (binIndexI, binIndexJ));
 }
 
-bool mcl::RectangularPatchList::isBinOccupied (int binIndexI, int binIndexJ) const
+bool mclv1::RectangularPatchList::isBinOccupied (int binIndexI, int binIndexJ) const
 {
     for (int n = 0; n < rectangles.size(); ++n)
     {
@@ -437,7 +437,7 @@ bool mcl::RectangularPatchList::isBinOccupied (int binIndexI, int binIndexJ) con
     return false;
 }
 
-Rectangle<float> mcl::RectangularPatchList::getGridPatch (int binIndexI, int binIndexJ) const
+Rectangle<float> mclv1::RectangularPatchList::getGridPatch (int binIndexI, int binIndexJ) const
 {
     auto gridPatch = Rectangle<float>();
     gridPatch.setHorizontalRange (Range<float> (xedges.getUnchecked (binIndexI), xedges.getUnchecked (binIndexI + 1)));
@@ -445,7 +445,7 @@ Rectangle<float> mcl::RectangularPatchList::getGridPatch (int binIndexI, int bin
     return gridPatch;
 }
 
-Array<juce::Line<float>> mcl::RectangularPatchList::getListOfBoundaryLines() const
+Array<juce::Line<float>> mclv1::RectangularPatchList::getListOfBoundaryLines() const
 {
     auto matrix = getOccupationMatrix();
     auto ni = xedges.size() - 1;
@@ -493,7 +493,7 @@ Array<juce::Line<float>> mcl::RectangularPatchList::getListOfBoundaryLines() con
     return lines;
 }
 
-Path mcl::RectangularPatchList::getOutlinePath (float cornerSize) const
+Path mclv1::RectangularPatchList::getOutlinePath (float cornerSize) const
 {
     auto p = Path();
     auto lines = getListOfBoundaryLines();
@@ -541,7 +541,7 @@ Path mcl::RectangularPatchList::getOutlinePath (float cornerSize) const
     return p;
 }
 
-juce::Array<bool> mcl::RectangularPatchList::getOccupationMatrix() const
+juce::Array<bool> mclv1::RectangularPatchList::getOccupationMatrix() const
 {
     auto matrix = Array<bool>();
     auto ni = xedges.size() - 1;
@@ -559,7 +559,7 @@ juce::Array<bool> mcl::RectangularPatchList::getOccupationMatrix() const
     return matrix;
 }
 
-Array<float> mcl::RectangularPatchList::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
+Array<float> mclv1::RectangularPatchList::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
 {
     Array<float> X;
 
@@ -571,7 +571,7 @@ Array<float> mcl::RectangularPatchList::getUniqueCoordinatesX (const Array<Recta
     return uniqueValuesOfSortedArray (X);
 }
 
-Array<float> mcl::RectangularPatchList::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
+Array<float> mclv1::RectangularPatchList::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
 {
     Array<float> Y;
 
@@ -583,7 +583,7 @@ Array<float> mcl::RectangularPatchList::getUniqueCoordinatesY (const Array<Recta
     return uniqueValuesOfSortedArray (Y);
 }
 
-Array<float> mcl::RectangularPatchList::uniqueValuesOfSortedArray (const Array<float>& X)
+Array<float> mclv1::RectangularPatchList::uniqueValuesOfSortedArray (const Array<float>& X)
 {
     jassert (! X.isEmpty());
     Array<float> unique { X.getFirst() };
@@ -599,12 +599,12 @@ Array<float> mcl::RectangularPatchList::uniqueValuesOfSortedArray (const Array<f
 
 
 //==============================================================================
-mcl::TextLayout::TextLayout()
+mclv1::TextLayout::TextLayout()
 {
     changeCallback = [] (auto) {};
 }
 
-void mcl::TextLayout::setChangeCallback (std::function<void (juce::Rectangle<float>)> changeCallbackToUse)
+void mclv1::TextLayout::setChangeCallback (std::function<void (juce::Rectangle<float>)> changeCallbackToUse)
 {
     if (! (changeCallback = changeCallbackToUse))
     {
@@ -612,25 +612,25 @@ void mcl::TextLayout::setChangeCallback (std::function<void (juce::Rectangle<flo
     }
 }
 
-void mcl::TextLayout::setFont (juce::Font newFont)
+void mclv1::TextLayout::setFont (juce::Font newFont)
 {
     font = newFont;
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::appendRow (const juce::String& text)
+void mclv1::TextLayout::appendRow (const juce::String& text)
 {
     lines.add (text);
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::insertRow (int index, const juce::String& text)
+void mclv1::TextLayout::insertRow (int index, const juce::String& text)
 {
     lines.insert (index, text);
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::breakRowAtColumn (int row, int col)
+void mclv1::TextLayout::breakRowAtColumn (int row, int col)
 {
     auto lineA = lines[row].substring (0, col);
     auto lineB = lines[row].substring (col);
@@ -639,7 +639,7 @@ void mcl::TextLayout::breakRowAtColumn (int row, int col)
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::joinRowWithPrevious (int row)
+void mclv1::TextLayout::joinRowWithPrevious (int row)
 {
     jassert (row != 0);
     lines.set (row - 1, lines[row - 1] + lines[row]);
@@ -647,27 +647,27 @@ void mcl::TextLayout::joinRowWithPrevious (int row)
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::removeRow (int index)
+void mclv1::TextLayout::removeRow (int index)
 {
     lines.remove (index);
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::insertCharacter (int row, int col, juce::juce_wchar character)
+void mclv1::TextLayout::insertCharacter (int row, int col, juce::juce_wchar character)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + character + line.substring (col));
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::removeCharacter (int row, int col)
+void mclv1::TextLayout::removeCharacter (int row, int col)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + line.substring (col + 1));
     changeCallback (Rectangle<float>());
 }
 
-void mcl::TextLayout::removeTextInRange (int row0, int col0, int row1, int col1)
+void mclv1::TextLayout::removeTextInRange (int row0, int col0, int row1, int col1)
 {
     if (row0 == row1)
     {
@@ -686,7 +686,7 @@ void mcl::TextLayout::removeTextInRange (int row0, int col0, int row1, int col1)
     }
 }
 
-void mcl::TextLayout::removeTextInRange (juce::Line<int> properRange)
+void mclv1::TextLayout::removeTextInRange (juce::Line<int> properRange)
 {
     removeTextInRange (properRange.getStartX(),
                        properRange.getStartY(),
@@ -694,30 +694,30 @@ void mcl::TextLayout::removeTextInRange (juce::Line<int> properRange)
                        properRange.getEndY());
 }
 
-void mcl::TextLayout::insertText (int row, int col, const juce::String& text)
+void mclv1::TextLayout::insertText (int row, int col, const juce::String& text)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + text + line.substring (col));
     changeCallback (getGlyphBounds (row, Range<int> (col, getNumColumns (row))));
 }
 
-void mcl::TextLayout::clear()
+void mclv1::TextLayout::clear()
 {
     lines.clear();
     changeCallback (Rectangle<float>());
 }
 
-int mcl::TextLayout::getNumRows() const
+int mclv1::TextLayout::getNumRows() const
 {
     return lines.size();
 }
 
-int mcl::TextLayout::getNumColumns (int row) const
+int mclv1::TextLayout::getNumColumns (int row) const
 {
     return lines[row].length();
 }
 
-Range<int> mcl::TextLayout::findRangeOfColumns (int row, int col, ColumnRangeType type)
+Range<int> mclv1::TextLayout::findRangeOfColumns (int row, int col, ColumnRangeType type)
 {
     switch (type)
     {
@@ -745,7 +745,7 @@ Range<int> mcl::TextLayout::findRangeOfColumns (int row, int col, ColumnRangeTyp
     }
 }
 
-int mcl::TextLayout::findRowContainingVerticalPosition (float y) const
+int mclv1::TextLayout::findRowContainingVerticalPosition (float y) const
 {
     if (y < getVerticalRangeForRow (0).getStart())
     {
@@ -768,7 +768,7 @@ int mcl::TextLayout::findRowContainingVerticalPosition (float y) const
     return -1;
 }
 
-Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (Point<float> position) const
+Point<int> mclv1::TextLayout::findRowAndColumnNearestPosition (Point<float> position) const
 {
     auto row = findRowContainingVerticalPosition (position.y);
     auto glyphs = getGlyphsForRow (row);
@@ -792,12 +792,12 @@ Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (Point<float> positi
     return Point<int> (row, col);
 }
 
-Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, int col) const
+Rectangle<float> mclv1::TextLayout::getGlyphBounds (int row, int col) const
 {
     return getGlyphBounds (row, Range<int> (col, col + 1));
 }
 
-juce::Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, juce::Range<int> columnRange) const
+juce::Rectangle<float> mclv1::TextLayout::getGlyphBounds (int row, juce::Range<int> columnRange) const
 {
     auto line = lines[row] + " ";
     GlyphArrangement glyphs;
@@ -810,14 +810,14 @@ juce::Rectangle<float> mcl::TextLayout::getGlyphBounds (int row, juce::Range<int
     return box;
 }
 
-juce::GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row) const
+juce::GlyphArrangement mclv1::TextLayout::getGlyphsForRow (int row) const
 {
     GlyphArrangement glyphs;
     glyphs.addLineOfText (font, lines[row], 0.f, getVerticalRangeForRow (row).getEnd());
     return glyphs;
 }
 
-GlyphArrangement mcl::TextLayout::getGlyphsInside (Rectangle<float> area) const
+GlyphArrangement mclv1::TextLayout::getGlyphsInside (Rectangle<float> area) const
 {
     auto range = getRowIndexRangeIntersecting (area.getVerticalRange());
     GlyphArrangement glyphs;
@@ -829,20 +829,20 @@ GlyphArrangement mcl::TextLayout::getGlyphsInside (Rectangle<float> area) const
     return glyphs;
 }
 
-Range<int> mcl::TextLayout::getRowIndexRangeIntersecting (Range<float> verticalRange) const
+Range<int> mclv1::TextLayout::getRowIndexRangeIntersecting (Range<float> verticalRange) const
 {
     auto i0 = findRowContainingVerticalPosition (verticalRange.getStart());
     auto i1 = findRowContainingVerticalPosition (verticalRange.getEnd());
     return juce::Range<int> (i0, i1);
 }
 
-Range<float> mcl::TextLayout::getVerticalRangeForRow (int row) const
+Range<float> mclv1::TextLayout::getVerticalRangeForRow (int row) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     return Range<float> (row * lineHeight, (row + 1) * lineHeight);
 }
 
-Range<float> mcl::TextLayout::getHorizontalRangeForRow (int row) const
+Range<float> mclv1::TextLayout::getHorizontalRangeForRow (int row) const
 {
     if (row < 0 || row >= lines.size())
     {
@@ -851,12 +851,12 @@ Range<float> mcl::TextLayout::getHorizontalRangeForRow (int row) const
     return getGlyphsForRow (row).getBoundingBox (0, -1, true).getHorizontalRange();
 }
 
-float mcl::TextLayout::getHeight() const
+float mclv1::TextLayout::getHeight() const
 {
     return getVerticalRangeForRow (getNumRows() - 1).getEnd();
 }
 
-Rectangle<float> mcl::TextLayout::getBounds() const
+Rectangle<float> mclv1::TextLayout::getBounds() const
 {
     int numRows = getNumRows();
     Range<float> verticalRange;
@@ -879,7 +879,7 @@ Rectangle<float> mcl::TextLayout::getBounds() const
 
 
 //==============================================================================
-mcl::TextEditor::TextEditor() : selection (layout)
+mclv1::TextEditor::TextEditor() : selection (layout)
 {
     layout.setFont (Font ("Monaco", 12, 0));
     layout.setChangeCallback ([this] (Rectangle<float> area)
@@ -898,7 +898,7 @@ mcl::TextEditor::TextEditor() : selection (layout)
     setWantsKeyboardFocus (true);
 }
 
-void mcl::TextEditor::setText (const String& text)
+void mclv1::TextEditor::setText (const String& text)
 {
     layout.clear();
 
@@ -910,26 +910,26 @@ void mcl::TextEditor::setText (const String& text)
     repaint();
 }
 
-void mcl::TextEditor::translateView (float dx, float dy)
+void mclv1::TextEditor::translateView (float dx, float dy)
 {
     translation.y = jlimit (jmin (-0.f, -layout.getHeight() + getHeight()), 0.f, translation.y + dy);
     updateViewTransform();
 }
 
-void mcl::TextEditor::scaleView (float scaleFactor)
+void mclv1::TextEditor::scaleView (float scaleFactor)
 {
     viewScaleFactor *= scaleFactor;
     updateViewTransform();
 }
 
-void mcl::TextEditor::updateViewTransform()
+void mclv1::TextEditor::updateViewTransform()
 {
     transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
     selection.setViewTransform (transform);
     repaint();
 }
 
-void mcl::TextEditor::paintRowsInAlternatingColors (juce::Graphics& g)
+void mclv1::TextEditor::paintRowsInAlternatingColors (juce::Graphics& g)
 {
     g.saveState();
     g.addTransform (transform);
@@ -947,30 +947,30 @@ void mcl::TextEditor::paintRowsInAlternatingColors (juce::Graphics& g)
     g.restoreState();
 }
 
-void mcl::TextEditor::paint (Graphics& g)
+void mclv1::TextEditor::paint (Graphics& g)
 {
     g.fillAll (findColour (juce::TextEditor::backgroundColourId));
     paintRowsInAlternatingColors (g);
 }
 
-void mcl::TextEditor::paintOverChildren (Graphics& g)
+void mclv1::TextEditor::paintOverChildren (Graphics& g)
 {
     g.setColour (findColour (juce::TextEditor::textColourId));
     layout.getGlyphsInside (g.getClipBounds().toFloat().transformedBy (transform.inverted())).draw (g, transform);
 }
 
-void mcl::TextEditor::resized()
+void mclv1::TextEditor::resized()
 {
     selection.setBounds (getLocalBounds());
 }
 
-void mcl::TextEditor::mouseDown (const juce::MouseEvent& e)
+void mclv1::TextEditor::mouseDown (const juce::MouseEvent& e)
 {
     auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
     selection.setCaretPosition (rc.x, rc.y);
 }
 
-void mcl::TextEditor::mouseDrag (const juce::MouseEvent& e)
+void mclv1::TextEditor::mouseDrag (const juce::MouseEvent& e)
 {
     if (e.mouseWasDraggedSinceMouseDown())
     {
@@ -979,24 +979,24 @@ void mcl::TextEditor::mouseDrag (const juce::MouseEvent& e)
     }
 }
 
-void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
+void mclv1::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     auto rc = layout.findRowAndColumnNearestPosition (e.position.transformedBy (transform.inverted()));
     auto colRange = layout.findRangeOfColumns (rc.x, rc.y, TextLayout::ColumnRangeType::word);
     selection.setSelectionToColumnRange (rc.x, colRange);
 }
 
-void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
+void mclv1::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
 {
     translateView (d.deltaX * 600, d.deltaY * 600);
 }
 
-void mcl::TextEditor::mouseMagnify (const juce::MouseEvent& e, float scaleFactor)
+void mclv1::TextEditor::mouseMagnify (const juce::MouseEvent& e, float scaleFactor)
 {
     scaleView (scaleFactor);
 }
 
-bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
+bool mclv1::TextEditor::keyPressed (const juce::KeyPress& key)
 {
     if (key.getModifiers().isShiftDown())
     {
@@ -1028,7 +1028,7 @@ bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
     return false;
 }
 
-MouseCursor mcl::TextEditor::getMouseCursor()
+MouseCursor mclv1::TextEditor::getMouseCursor()
 {
     return MouseCursor::IBeamCursor;
 }

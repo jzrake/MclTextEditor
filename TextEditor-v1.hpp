@@ -16,7 +16,7 @@
 
 
 
-namespace mcl {
+namespace mclv1 {
     class CaretComponent;
     class HighlightComponent;
     class ContentSelection;
@@ -29,7 +29,7 @@ namespace mcl {
 
 
 //==============================================================================
-class mcl::CaretComponent : public juce::Component, private juce::Timer
+class mclv1::CaretComponent : public juce::Component, private juce::Timer
 {
 public:
     void showAndResetPhase();
@@ -47,7 +47,7 @@ private:
 
 
 //==============================================================================
-class mcl::HighlightComponent : public juce::Component
+class mclv1::HighlightComponent : public juce::Component
 {
 public:
     HighlightComponent();
@@ -66,7 +66,7 @@ private:
 
 
 //==============================================================================
-class mcl::ContentSelection : public juce::Component
+class mclv1::ContentSelection : public juce::Component
 {
 public:
     ContentSelection (TextLayout& layout);
@@ -109,7 +109,7 @@ private:
 
 
 //==============================================================================
-class mcl::RectangularPatchList
+class mclv1::RectangularPatchList
 {
 public:
     RectangularPatchList (const juce::Array<juce::Rectangle<float>>& rectangles);
@@ -134,7 +134,7 @@ private:
 
 
 //==============================================================================
-class mcl::TextLayout
+class mclv1::TextLayout
 {
 public:
     enum class ColumnRangeType
@@ -227,7 +227,7 @@ private:
 
 
 //==============================================================================
-class mcl::TextEditor : public juce::Component
+class mclv1::TextEditor : public juce::Component
 {
 public:
     //==========================================================================
