@@ -72,7 +72,10 @@ public:
     ContentSelection (TextLayout& layout);
     void setViewTransform (const juce::AffineTransform& transform);
     void setCaretPosition (int row, int col, int startRow=-1, int startCol=-1);
+    void setCaretPosition (juce::Point<int> position);
     void extendSelectionTo (int row, int col);
+    void setSelectionToColumnRange (int row, juce::Range<int> columnRange);
+    bool isSelectionEmpty();
     bool moveCaretForward();
     bool moveCaretBackward();
     bool moveCaretUp();
@@ -89,11 +92,10 @@ public:
     bool removeLineAtCaret();
     bool deleteBackward();
     bool deleteForward();
-    void setSelectionToColumnRange (int row, juce::Range<int> columnRange);
-
     void resized() override;
 
 private:
+    juce::Line<int> getProperSelectionRange(); // r0, c0 -> r1, c1
     TextLayout& layout;
     int caretRow = 0;
     int caretCol = 0;
@@ -158,6 +160,8 @@ public:
     void removeRow (int index);
     void insertCharacter (int row, int col, juce::juce_wchar character);
     void removeCharacter (int row, int col);
+    void removeTextInRange (int row0, int col0, int row1, int col1);
+    void removeTextInRange (juce::Line<int> properRange);
     void insertText (int row, int col, const juce::String& text);
     void clear();
 

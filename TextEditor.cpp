@@ -146,7 +146,7 @@ void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, in
                       .expanded (0, 3));
     caret.showAndResetPhase();
 
-    if (selectionStartRow == caretRow && selectionStartCol == caretCol)
+    if (isSelectionEmpty())
     {
         highlight.clear();
     }
@@ -162,44 +162,37 @@ void mcl::ContentSelection::setCaretPosition (int row, int col, int startRow, in
         }
         else
         {
-            if (caretRow > selectionStartRow) // for a forward selection
+            auto range = getProperSelectionRange();
+            int r0 = range.getStartX();
+            int c0 = range.getStartY();
+            int r1 = range.getEndX();
+            int c1 = range.getEndY();
+
+            rectList.add (layout.getGlyphBounds (r0, Range<int> (c0, layout.getNumColumns (r0))));
+            rectList.add (layout.getGlyphBounds (r1, Range<int> (0, c1)));
+
+            for (int n = r0 + 1; n < r1; ++n)
             {
-                int r0 = selectionStartRow;
-                int c0 = selectionStartCol;
-                int r1 = caretRow;
-                int c1 = caretCol;
-
-                rectList.add (layout.getGlyphBounds (r0, Range<int> (c0, layout.getNumColumns (r0))));
-                rectList.add (layout.getGlyphBounds (r1, Range<int> (0, c1)));
-
-                for (int n = r0 + 1; n < r1; ++n)
-                {
-                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n) + 1)));
-                }
-            }
-            else // for a backward selection
-            {
-                int r0 = caretRow;
-                int c0 = caretCol;
-                int r1 = selectionStartRow;
-                int c1 = selectionStartCol;
-
-                rectList.add (layout.getGlyphBounds (r0, Range<int> (c0, layout.getNumColumns (r0))));
-                rectList.add (layout.getGlyphBounds (r1, Range<int> (0, c1)));
-
-                for (int n = r0 + 1; n < r1; ++n)
-                {
-                    rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n) + 1)));
-                }
+                rectList.add (layout.getGlyphBounds (n, Range<int> (0, layout.getNumColumns (n) + 1)));
             }
         }
         highlight.setSelectedRegion (rectList);
     }
 }
 
+void mcl::ContentSelection::setCaretPosition (juce::Point<int> position)
+{
+    setCaretPosition (position.x, position.y);
+}
+
 void mcl::ContentSelection::extendSelectionTo (int row, int col)
 {
     setCaretPosition (row, col, selectionStartRow, selectionStartCol);
+}
+
+bool mcl::ContentSelection::isSelectionEmpty()
+{
+    return selectionStartRow == caretRow && selectionStartCol == caretCol;
 }
 
 bool mcl::ContentSelection::moveCaretForward()
@@ -345,21 +338,39 @@ bool mcl::ContentSelection::removeLineAtCaret()
 
 bool mcl::ContentSelection::deleteBackward()
 {
-    if (caretCol == 0 && caretRow > 0)
+    if (isSelectionEmpty())
     {
-        layout.joinRowWithPrevious (caretRow);
+        if (caretCol == 0 && caretRow > 0)
+        {
+            layout.joinRowWithPrevious (caretRow);
+        }
+        else
+        {
+            layout.removeCharacter (caretRow, caretCol - 1);
+        }
+        moveCaretBackward();
     }
     else
     {
-        layout.removeCharacter (caretRow, caretCol - 1);
+        auto range = getProperSelectionRange();
+        layout.removeTextInRange (range);
+        setCaretPosition (range.getStart());
     }
-    moveCaretBackward();
     return true;
 }
 
 bool mcl::ContentSelection::deleteForward()
 {
-    layout.removeCharacter (caretRow, caretCol);
+    if (isSelectionEmpty())
+    {
+        layout.removeCharacter (caretRow, caretCol);
+    }
+    else
+    {
+        auto range = getProperSelectionRange();
+        layout.removeTextInRange (range);
+        setCaretPosition (range.getStart());
+    }
     return true;
 }
 
@@ -371,6 +382,31 @@ void mcl::ContentSelection::setSelectionToColumnRange (int row, juce::Range<int>
 void mcl::ContentSelection::resized()
 {
     highlight.setBounds (getLocalBounds());
+}
+
+juce::Line<int> mcl::ContentSelection::getProperSelectionRange()
+{
+    if (caretRow == selectionStartRow)
+    {
+        return Line<int> (caretRow, jmin (selectionStartCol, caretCol),
+                          caretRow, jmax (selectionStartCol, caretCol));
+    }
+    if (caretRow > selectionStartRow) // for a forward selection
+    {
+        int r0 = selectionStartRow;
+        int c0 = selectionStartCol;
+        int r1 = caretRow;
+        int c1 = caretCol;
+        return Line<int> (r0, c0, r1, c1);
+    }
+    else // for a backward selection
+    {
+        int r0 = caretRow;
+        int c0 = caretCol;
+        int r1 = selectionStartRow;
+        int c1 = selectionStartCol;
+        return Line<int> (r0, c0, r1, c1);
+    }
 }
 
 
@@ -526,7 +562,7 @@ juce::Array<bool> mcl::RectangularPatchList::getOccupationMatrix() const
 Array<float> mcl::RectangularPatchList::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
 {
     Array<float> X;
-    
+
     for (const auto& rect : rectangles)
     {
         X.addUsingDefaultSort (rect.getX());
@@ -538,7 +574,7 @@ Array<float> mcl::RectangularPatchList::getUniqueCoordinatesX (const Array<Recta
 Array<float> mcl::RectangularPatchList::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
 {
     Array<float> Y;
-    
+
     for (const auto& rect : rectangles)
     {
         Y.addUsingDefaultSort (rect.getY());
@@ -551,11 +587,11 @@ Array<float> mcl::RectangularPatchList::uniqueValuesOfSortedArray (const Array<f
 {
     jassert (! X.isEmpty());
     Array<float> unique { X.getFirst() };
-    
+
     for (const auto& x : X)
         if (x != unique.getLast())
             unique.add (x);
-    
+
     return unique;
 }
 
@@ -621,14 +657,41 @@ void mcl::TextLayout::insertCharacter (int row, int col, juce::juce_wchar charac
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + character + line.substring (col));
-    changeCallback (getGlyphBounds (row, Range<int> (col, getNumColumns (row))));
+    changeCallback (Rectangle<float>());
 }
 
 void mcl::TextLayout::removeCharacter (int row, int col)
 {
     const auto& line = lines[row];
     lines.set (row, line.substring (0, col) + line.substring (col + 1));
-    changeCallback (getGlyphBounds (row, Range<int> (col, getNumColumns (row))));
+    changeCallback (Rectangle<float>());
+}
+
+void mcl::TextLayout::removeTextInRange (int row0, int col0, int row1, int col1)
+{
+    if (row0 == row1)
+    {
+        const auto& line = lines[row0];
+        lines.set (row0, line.substring (0, col0) + line.substring (col1));
+        changeCallback (Rectangle<float>());
+    }
+    else
+    {
+        const auto& line0 = lines[row0];
+        const auto& line1 = lines[row1];
+
+        lines.set (row0, line0.substring (0, col0));
+        lines.set (row1, line1.substring (col1));
+        lines.removeRange (row0 + 1, row1 - row0 - 1);
+    }
+}
+
+void mcl::TextLayout::removeTextInRange (juce::Line<int> properRange)
+{
+    removeTextInRange (properRange.getStartX(),
+                       properRange.getStartY(),
+                       properRange.getEndX(),
+                       properRange.getEndY());
 }
 
 void mcl::TextLayout::insertText (int row, int col, const juce::String& text)
@@ -711,12 +774,19 @@ Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (Point<float> positi
     auto glyphs = getGlyphsForRow (row);
     auto col = getNumColumns (row);
 
-    for (int n = 0; n < glyphs.getNumGlyphs(); ++n)
+    if (position.x < 0.f)
     {
-        if (glyphs.getBoundingBox (n, 1, true).getHorizontalRange().contains (position.x))
+        col = 0;
+    }
+    else
+    {
+        for (int n = 0; n < glyphs.getNumGlyphs(); ++n)
         {
-            col = n;
-            break;
+            if (glyphs.getBoundingBox (n, 1, true).getHorizontalRange().contains (position.x))
+            {
+                col = n;
+                break;
+            }
         }
     }
     return Point<int> (row, col);
