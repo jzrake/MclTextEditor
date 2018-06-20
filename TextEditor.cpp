@@ -19,7 +19,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    // startTimerHz (40);
+    startTimerHz (40);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -41,7 +41,7 @@ void mcl::CaretComponent::paint (Graphics& g)
 
     for (const auto& selection : layout.getSelections())
     {
-        auto b = layout.getGlyphBounds (selection.head).removeFromLeft (3.f);
+        auto b = layout.getGlyphBounds (selection.head).removeFromLeft (3.f).translated (-1.5f, 0.f).expanded (0.f, 1.f);
         g.fillRect (b);
     }
 }
@@ -56,6 +56,40 @@ void mcl::CaretComponent::timerCallback()
 {
     phase += 1.6e-1;
     repaint();
+}
+
+
+
+
+//==========================================================================
+mcl::HighlightComponent::HighlightComponent (const TextLayout& layout) : layout (layout)
+{
+    setInterceptsMouseClicks (false, false);
+}
+
+void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& transformToUse)
+{
+    transform = transformToUse;
+    repaint();
+}
+
+void mcl::HighlightComponent::refreshSelections()
+{
+    repaint();
+}
+
+void mcl::HighlightComponent::paint (juce::Graphics& g)
+{
+    g.addTransform (transform);
+    g.setColour (Colours::black.withAlpha (0.2f));
+
+    for (const auto& s : layout.getSelections())
+    {
+        for (const auto& patch : layout.getSelectionRegion (s))
+        {
+            g.fillRect (patch);
+        }
+    }
 }
 
 
@@ -167,6 +201,22 @@ float mcl::TextLayout::getVerticalPosition (int row, Metric metric) const
     }
 }
 
+Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection) const
+{
+    Array<Rectangle<float>> patches;
+
+    if (selection.head.x == selection.tail.x)
+    {
+        int c0 = jmin (selection.head.y, selection.tail.y);
+        int c1 = jmax (selection.head.y, selection.tail.y);
+        patches.add (getBoundsOnRow (selection.head.x, Range<int> (c0, c1)));
+    }
+    else
+    {
+    }
+    return patches;
+}
+
 Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
 {
     return getGlyphsForRow (row, true)
@@ -177,6 +227,7 @@ Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) c
 
 Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
 {
+    index.y = jlimit (0, getNumColumns (index.x), index.y);
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
@@ -239,28 +290,79 @@ bool mcl::TextLayout::next (juce::Point<int>& index) const
         index.y += 1;
         return true;
     }
-    return false;
-}
-
-bool mcl::TextLayout::prev (juce::Point<int>& index) const
-{
-    if (index.y > 0)
+    else if (index.x < getNumRows())
     {
-        index.y -= 1;
+        index.x += 1;
+        index.y = 0;
         return true;
     }
     return false;
 }
 
-Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation) const
+bool mcl::TextLayout::prev (juce::Point<int>& index) const
+{
+    /*
+     During vertical navigations, the column index might be greater than the row
+     length, in order to restore the column value if navigating back to longer
+     lines. This mode is canceled by backward horizontal navigation.
+     */
+    index.y = jmin (index.y, getNumColumns (index.x));
+
+    if (index.y > 0)
+    {
+        index.y -= 1;
+        return true;
+    }
+    else if (index.x > 0)
+    {
+        index.x -= 1;
+        index.y = getNumColumns (index.x);
+        return true;
+    }
+    return false;
+}
+
+bool mcl::TextLayout::nextRow (juce::Point<int>& index) const
+{
+    if (index.x < getNumRows())
+    {
+        index.x += 1;
+        return true;
+    }
+    return false;
+}
+
+bool mcl::TextLayout::prevRow (juce::Point<int>& index) const
+{
+    if (index.x > 0)
+    {
+        index.x -= 1;
+        return true;
+    }
+    return false;
+}
+
+Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, bool fixingTail) const
 {
     auto S = selections;
+    auto shrunken = fixingTail
+    ? [] (Array<Selection> S) { return S; }
+    : [] (Array<Selection> S)
+    {
+        for (auto& s : S)
+            s.tail = s.head;
+        return S;
+    };
 
     switch (navigation)
     {
         case Navigation::identity: return S;
-        case Navigation::forwardByChar : for (auto& s : S) next (s.head); return S;
-        case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return S;
+        case Navigation::forwardByChar : for (auto& s : S) next (s.head); return shrunken (S);
+        case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return shrunken (S);
+        case Navigation::forwardByLine : for (auto& s : S) nextRow (s.head); return shrunken (S);
+        case Navigation::backwardByLine: for (auto& s : S) prevRow (s.head); return shrunken (S);
+        case Navigation::toLineStart   : for (auto& s : S) s.head.y = 0; return shrunken (S);
+        case Navigation::toLineEnd     : for (auto& s : S) s.head.y = getNumColumns (s.head.x); return shrunken (S);
         default: return S;
     }
 }
@@ -269,12 +371,13 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation) con
 
 
 //==============================================================================
-mcl::TextEditor::TextEditor() : caret (layout)
+mcl::TextEditor::TextEditor() : highlight (layout), caret (layout)
 {
     callback = [this] (TextAction::Report report)
     {
         if (report.navigationOcurred)
         {
+            highlight.refreshSelections();
             caret.refreshSelections();
         }
         if (! report.textAreaAffected.isEmpty())
@@ -287,6 +390,8 @@ mcl::TextEditor::TextEditor() : caret (layout)
     layout.setFont (Font ("Monaco", 16, 0));
     translateView (10, 0);
     setWantsKeyboardFocus (true);
+
+    addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
 }
 
@@ -312,12 +417,14 @@ void mcl::TextEditor::scaleView (float scaleFactor)
 void mcl::TextEditor::updateViewTransform()
 {
     transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
+    highlight.setViewTransform (transform);
     caret.setViewTransform (transform);
     repaint();
 }
 
 void mcl::TextEditor::resized()
 {
+    highlight.setBounds (getLocalBounds());
     caret.setBounds (getLocalBounds());
 }
 
@@ -374,36 +481,44 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
-    auto makeUndoable = [this] (TextAction action)
+    using Navigation = TextLayout::Navigation;
+
+    auto makeUndoableNav = [this] (TextLayout::Navigation navigation)
     {
+        auto action = TextAction (callback, layout.getSelections (navigation));
+        undo.beginNewTransaction();
+        return undo.perform (action.on (layout));
+    };
+
+    auto makeUndoableExpandSelection = [this] (TextLayout::Navigation navigation)
+    {
+        auto action = TextAction (callback, layout.getSelections (navigation, true));
         undo.beginNewTransaction();
         return undo.perform (action.on (layout));
     };
 
     if (key.getModifiers().isShiftDown())
     {
-//        if (key.isKeyCode (KeyPress::leftKey )) return selection.extendSelectionBackward();
-//        if (key.isKeyCode (KeyPress::rightKey)) return selection.extendSelectionForward();
+        if (key.isKeyCode (KeyPress::rightKey )) return makeUndoableExpandSelection (Navigation::forwardByChar);
+        if (key.isKeyCode (KeyPress::leftKey  )) return makeUndoableExpandSelection (Navigation::backwardByChar);
 //        if (key.isKeyCode (KeyPress::upKey   )) return selection.extendSelectionUp();
 //        if (key.isKeyCode (KeyPress::downKey )) return selection.extendSelectionDown();
     }
     else
     {
-        if (key.isKeyCode (KeyPress::rightKey    )) return makeUndoable (TextAction (callback, layout.getSelections (TextLayout::Navigation::forwardByChar)));
-        if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoable (TextAction (callback, layout.getSelections (TextLayout::Navigation::backwardByChar)));
+        if (key.isKeyCode (KeyPress::rightKey    )) return makeUndoableNav (Navigation::forwardByChar);
+        if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoableNav (Navigation::backwardByChar);
+        if (key.isKeyCode (KeyPress::downKey     )) return makeUndoableNav (Navigation::forwardByLine);
+        if (key.isKeyCode (KeyPress::upKey       )) return makeUndoableNav (Navigation::backwardByLine);
 
 //        if (key.isKeyCode (KeyPress::backspaceKey)) return selection.deleteBackward();
-//        if (key.isKeyCode (KeyPress::leftKey     )) return selection.moveCaretBackward();
-//        if (key.isKeyCode (KeyPress::rightKey    )) return selection.moveCaretForward();
-//        if (key.isKeyCode (KeyPress::upKey       )) return selection.moveCaretUp();
-//        if (key.isKeyCode (KeyPress::downKey     )) return selection.moveCaretDown();
 //        if (key.isKeyCode (KeyPress::returnKey   )) return selection.insertLineBreakAtCaret();
     }
 
-    // if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return selection.moveCaretToLineStart();
-    // if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return selection.moveCaretToLineEnd();
-    // if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return selection.deleteForward();
+    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return makeUndoableNav (Navigation::toLineStart);
+    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return makeUndoableNav (Navigation::toLineEnd);
 
+    // if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return selection.deleteForward();
     // if (key == KeyPress ('v', ModifierKeys::commandModifier, 0)) return selection.insertTextAtCaret (SystemClipboard::getTextFromClipboard());
 
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
@@ -420,40 +535,3 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 {
     return MouseCursor::IBeamCursor;
 }
-
-
-
-
-
-
-
-//String text = "The quick brown fox";
-//GlyphArrangement glyphs;
-//Font font ("Times", 54, 0);
-//
-//float baseline = 0.f;
-//float lineSpacing = 1.25f;
-//float gap = font.getHeight() * (lineSpacing - 1.f) * 0.5f;
-//
-//glyphs.addLineOfText (font, text, 0.f, baseline);
-//
-//g.saveState();
-//g.addTransform (AffineTransform::translation (0, 200));
-//
-//g.setColour (Colours::white);
-//g.fillAll();
-//
-//g.setColour (Colours::lightgrey);
-//g.drawHorizontalLine (baseline, 0.f, getWidth());
-//g.drawHorizontalLine (baseline + font.getDescent(), 0.f, getWidth());
-//g.drawHorizontalLine (baseline - font.getAscent(), 0.f, getWidth());
-//
-//g.setColour (Colours::whitesmoke);
-//g.fillRect (Rectangle<int> (0, baseline - font.getAscent() - gap, getWidth(), gap));
-//g.fillRect (Rectangle<int> (0, baseline + font.getDescent(), getWidth(), gap));
-//
-//g.setColour (Colours::black);
-//glyphs.draw (g);
-//
-//g.restoreState();
-

@@ -34,8 +34,14 @@ namespace mcl {
 //==============================================================================
 struct mcl::Selection
 {
+    enum class Part
+    {
+        head, tail,
+    };
+
     Selection() {}
-    Selection (juce::Point<int> head) : head (head) {}
+    Selection (juce::Point<int> head) : head (head), tail (head) {}
+    Selection (juce::Point<int> head, juce::Point<int> tail) : head (head), tail (tail) {}
 
     bool operator== (const Selection& other) const
     {
@@ -65,6 +71,26 @@ private:
     void timerCallback() override;
     //==========================================================================
     float phase = 0.f;
+    const TextLayout& layout;
+    juce::AffineTransform transform;
+};
+
+
+
+
+//==============================================================================
+class mcl::HighlightComponent : public juce::Component
+{
+public:
+    HighlightComponent (const TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transformToUse);
+    void refreshSelections();
+    
+    //==========================================================================
+    void paint (juce::Graphics& g) override;
+
+private:
+    //==========================================================================
     const TextLayout& layout;
     juce::AffineTransform transform;
 };
@@ -128,6 +154,7 @@ public:
         identity,
         forwardByChar, backwardByChar,
         forwardByWord, backwardByWord,
+        forwardByLine, backwardByLine,
         toLineStart, toLineEnd,
     };
 
@@ -148,6 +175,9 @@ public:
 
     /** Return the vertical position of a metric on a row. */
     float getVerticalPosition (int row, Metric metric) const;
+
+    /** Return an array of rectangles covering the given selection. */
+    juce::Array<juce::Rectangle<float>> getSelectionRegion (Selection selection) const;
 
     /** Return the bounding box for the glyphs on the given row, and within
         the given range of columns. The range start must not be negative, and
@@ -182,11 +212,16 @@ public:
      */
     bool prev (juce::Point<int>& index) const;
 
+    /** Move the given index to the next row if possible. */
+    bool nextRow (juce::Point<int>& index) const;
+
+    /** Move the given index to the previous row if possible. */
+    bool prevRow (juce::Point<int>& index) const;
+
     /** Return the current selection state, possibly operated on. */
-    juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity) const;
+    juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity, bool fixingTail=false) const;
 
 private:
-    friend class TextEditor; // !!!
     float lineSpacing = 1.25f;
     juce::Font font;
     juce::StringArray lines;
@@ -224,6 +259,7 @@ private:
 
     bool tabKeyUsed = true;
     TextLayout layout;
+    HighlightComponent highlight;
     CaretComponent caret;
     std::function<void(TextAction::Report)> callback;
     float viewScaleFactor = 1.f;
