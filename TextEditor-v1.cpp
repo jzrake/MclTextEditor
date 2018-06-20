@@ -797,7 +797,7 @@ Rectangle<float> mclv1::TextLayout::getGlyphBounds (int row, int col) const
     return getGlyphBounds (row, Range<int> (col, col + 1));
 }
 
-juce::Rectangle<float> mclv1::TextLayout::getGlyphBounds (int row, juce::Range<int> columnRange) const
+Rectangle<float> mclv1::TextLayout::getGlyphBounds (int row, Range<int> columnRange) const
 {
     auto line = lines[row] + " ";
     GlyphArrangement glyphs;
@@ -810,7 +810,7 @@ juce::Rectangle<float> mclv1::TextLayout::getGlyphBounds (int row, juce::Range<i
     return box;
 }
 
-juce::GlyphArrangement mclv1::TextLayout::getGlyphsForRow (int row) const
+GlyphArrangement mclv1::TextLayout::getGlyphsForRow (int row) const
 {
     GlyphArrangement glyphs;
     glyphs.addLineOfText (font, lines[row], 0.f, getVerticalRangeForRow (row).getEnd());
