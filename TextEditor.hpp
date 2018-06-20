@@ -34,6 +34,13 @@ namespace mcl {
 //==============================================================================
 struct mcl::Selection
 {
+    Selection() {}
+    Selection (juce::Point<int> head) : head (head) {}
+
+    bool operator== (const Selection& other) const
+    {
+        return head == other.head && tail == other.tail;
+    }
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
 };
@@ -78,15 +85,6 @@ private:
 class mcl::TextAction
 {
 public:
-    enum class Navigation
-    {
-        identity,
-        forwardByChar, backwardByChar,
-        forwardByWord, backwardByWord,
-        toLineStart, toLineStartInverse,
-        toLineEnd, toLineEndInverse,
-    };
-    
     struct Report
     {
         bool navigationOcurred = false;
@@ -95,20 +93,18 @@ public:
     using Callback = std::function<void(Report)>;
 
     TextAction();
-    TextAction (Callback callback, Navigation pre);
+    TextAction (Callback callback, juce::Array<Selection> targetSelection);
     bool perform (TextLayout& layout);
     TextAction inverted();
     juce::UndoableAction* on (TextLayout& layout) const;
 
 private:
     class Undoable;
-    static Navigation inverseOf (Navigation);
     Callback callback = nullptr;
-    Navigation navigationPre  = Navigation::identity;
-    Navigation navigationPost = Navigation::identity;
     juce::StringArray replacementFwd;
     juce::StringArray replacementRev;
-    juce::Array<Selection> priorSelection;
+    juce::Array<Selection> navigationFwd;
+    juce::Array<Selection> navigationRev;
 };
 
 
@@ -127,9 +123,19 @@ public:
         bottom,
     };
 
+    enum class Navigation
+    {
+        identity,
+        forwardByChar, backwardByChar,
+        forwardByWord, backwardByWord,
+        toLineStart, toLineEnd,
+    };
+
     void setFont (juce::Font fontToUse) { font = fontToUse; }
 
     void replaceAll (const juce::String& content);
+
+    void replaceSelections (const juce::Array<Selection>& newSelections) { selections = newSelections; }
 
     /** Get the number of rows in the layout. */
     int getNumRows() const;
@@ -164,9 +170,20 @@ public:
     /** Find the row and column index nearest to the given position. */
     juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
 
-    /** Return the current selection state. */
-    const juce::Array<Selection>& getSelections() const { return selections; }
-    juce::Array<Selection>& getSelections() { return selections; }
+    /** Advance the given index by a single character, moving to the next
+        line if at the end. Return false if the index cannot be advanced
+        further.
+     */
+    bool next (juce::Point<int>& index) const;
+
+    /** Move the given index back by a single character, moving to the previous
+        line if at the end. Return false if the index cannot be advanced
+        further.
+     */
+    bool prev (juce::Point<int>& index) const;
+
+    /** Return the current selection state, possibly operated on. */
+    juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity) const;
 
 private:
     friend class TextEditor; // !!!
@@ -208,7 +225,7 @@ private:
     bool tabKeyUsed = true;
     TextLayout layout;
     CaretComponent caret;
-
+    std::function<void(TextAction::Report)> callback;
     float viewScaleFactor = 1.f;
     juce::Point<float> translation;
     juce::AffineTransform transform;

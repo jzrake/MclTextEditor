@@ -89,22 +89,21 @@ mcl::TextAction::TextAction()
 {
 }
 
-mcl::TextAction::TextAction (Callback callback, Navigation pre)
+mcl::TextAction::TextAction (Callback callback, juce::Array<Selection> targetSelection)
 : callback (callback)
-, navigationPre (pre)
+, navigationFwd (targetSelection)
 {
 }
 
 bool mcl::TextAction::perform (TextLayout& layout)
 {
-    auto& selections = layout.getSelections();
+    navigationRev = layout.getSelections();
     Report report;
 
-    switch (navigationPre)
+    if (navigationFwd != navigationRev)
     {
-        case Navigation::forwardByChar : for (auto& s : selections) s.head.y += 1; report.navigationOcurred = true; break;
-        case Navigation::backwardByChar: for (auto& s : selections) s.head.y -= 1; report.navigationOcurred = true; break;
-        default: break;
+        report.navigationOcurred = true;
+        layout.replaceSelections (navigationFwd);
     }
 
     if (callback)
@@ -119,23 +118,14 @@ mcl::TextAction mcl::TextAction::inverted()
     op.callback       = callback;
     op.replacementFwd = replacementRev;
     op.replacementRev = replacementFwd;
-    op.navigationPre  = inverseOf (navigationPost);
-    op.navigationPost = inverseOf (navigationPre);
+    op.navigationFwd  = navigationRev;
+    op.navigationRev  = navigationFwd;
     return op;
 }
 
 UndoableAction* mcl::TextAction::on (TextLayout& layout) const
 {
     return new Undoable (*this, layout);
-}
-
-mcl::TextAction::Navigation mcl::TextAction::inverseOf (Navigation navigation)
-{
-    switch (navigation)
-    {
-        case Navigation::forwardByChar: return Navigation::backwardByChar;
-        default: return Navigation::backwardByChar;
-    }
 }
 
 
@@ -242,12 +232,58 @@ Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) con
     return Point<int> (row, col);
 }
 
+bool mcl::TextLayout::next (juce::Point<int>& index) const
+{
+    if (index.y < getNumColumns (index.x))
+    {
+        index.y += 1;
+        return true;
+    }
+    return false;
+}
+
+bool mcl::TextLayout::prev (juce::Point<int>& index) const
+{
+    if (index.y > 0)
+    {
+        index.y -= 1;
+        return true;
+    }
+    return false;
+}
+
+Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation) const
+{
+    auto S = selections;
+
+    switch (navigation)
+    {
+        case Navigation::identity: return S;
+        case Navigation::forwardByChar : for (auto& s : S) next (s.head); return S;
+        case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return S;
+        default: return S;
+    }
+}
+
 
 
 
 //==============================================================================
 mcl::TextEditor::TextEditor() : caret (layout)
 {
+    callback = [this] (TextAction::Report report)
+    {
+        if (report.navigationOcurred)
+        {
+            caret.refreshSelections();
+        }
+        if (! report.textAreaAffected.isEmpty())
+        {
+            repaint (report.textAreaAffected.transformedBy (transform).getSmallestIntegerContainer());
+        }
+    };
+
+    layout.replaceSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
     translateView (10, 0);
     setWantsKeyboardFocus (true);
@@ -301,17 +337,21 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
+    auto selections = layout.getSelections();
     auto index = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
-    auto selection = Selection();
-    selection.head = index;
-    selection.tail = index;
 
+    if (selections.contains (index))
+    {
+        return;
+    }
     if (! e.mods.isCommandDown())
     {
-        layout.selections.clear();
+        selections.clear();
     }
-    layout.selections.add (selection);
-    caret.refreshSelections();
+    selections.add (index);
+
+    undo.beginNewTransaction();
+    undo.perform (TextAction (callback, selections).on (layout));
 }
 
 void mcl::TextEditor::mouseDrag (const MouseEvent& e)
@@ -339,17 +379,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         undo.beginNewTransaction();
         return undo.perform (action.on (layout));
     };
-    auto callback = [this] (TextAction::Report report)
-    {
-        if (report.navigationOcurred)
-        {
-            caret.refreshSelections();
-        }
-        if (! report.textAreaAffected.isEmpty())
-        {
-            repaint (report.textAreaAffected.transformedBy (transform).getSmallestIntegerContainer());
-        }
-    };
 
     if (key.getModifiers().isShiftDown())
     {
@@ -360,8 +389,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     }
     else
     {
-        if (key.isKeyCode (KeyPress::rightKey    )) return makeUndoable (TextAction (callback, TextAction::Navigation::forwardByChar));
-        if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoable (TextAction (callback, TextAction::Navigation::backwardByChar));
+        if (key.isKeyCode (KeyPress::rightKey    )) return makeUndoable (TextAction (callback, layout.getSelections (TextLayout::Navigation::forwardByChar)));
+        if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoable (TextAction (callback, layout.getSelections (TextLayout::Navigation::backwardByChar)));
 
 //        if (key.isKeyCode (KeyPress::backspaceKey)) return selection.deleteBackward();
 //        if (key.isKeyCode (KeyPress::leftKey     )) return selection.moveCaretBackward();
