@@ -17,31 +17,49 @@
 
 
 namespace mcl {
-    class Selection;
-    class TextLayout;
-    class TextEditor;
+    /**
+        Factoring of responsibilities in the text editor classes:
+     */
+    class CaretComponent;     // draws the caret symbol(s)
+    class HighlightComponent; // draws the highlight region(s)
+    class TextAction;         // visits a layout, operates on text and caret ranges, is undoable
+    class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
+    class TextEditor;         // is a component, issues actions, computes view transform
+    class Selection;          // stores leading and trailing edges of an editing region
 }
 
 
 
 
-/**
- Factoring of responsibilities in the text editor classes:
- 
- - Selection: stores leading and trailing edges of an editing region
- - TextAction: visits a layout, operates on text and caret ranges, is undoable
- - TextLayout: stores text data and caret ranges, supplies metrics, accepts actions
- - TextEditor: is a component, issues actions, computes view transform
- - CaretComponent: draws the caret symbol(s) and highlighted region(s)
- */
-
-
-
-
+//==============================================================================
 struct mcl::Selection
 {
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
+};
+
+
+
+
+//==============================================================================
+class mcl::CaretComponent : public juce::Component, private juce::Timer
+{
+public:
+    CaretComponent (const TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transformToUse);
+    void refreshSelections();
+
+    //==========================================================================
+    void paint (juce::Graphics& g) override;
+
+private:
+    //==========================================================================
+    float squareWave (float wt) const;
+    void timerCallback() override;
+    //==========================================================================
+    float phase = 0.f;
+    const TextLayout& layout;
+    juce::AffineTransform transform;
 };
 
 
@@ -85,6 +103,9 @@ public:
      */
     juce::Rectangle<float> getBoundsOnRow (int row, juce::Range<int> columns) const;
 
+    /** Return the position of the glyph at the given row and column. */
+    juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
+
     /** Return a glyph arrangement for the given row. */
     juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false) const;
     
@@ -92,12 +113,17 @@ public:
     juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area) const;
 
     /** Find the row and column index nearest to the given position. */
-    juce::Point<int> findRowAndColumnNearestPosition (juce::Point<float> position) const;
+    juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
+
+    /** Return the current selection state. */
+    const juce::Array<Selection>& getSelections() const { return selections; }
 
 private:
+    friend class TextEditor; // !!!
     float lineSpacing = 1.25f;
     juce::Font font;
     juce::StringArray lines;
+    juce::Array<Selection> selections;
 };
 
 
@@ -113,9 +139,9 @@ public:
     void scaleView (float scaleFactor);
 
     //==========================================================================
+    void resized() override;
     void paint (juce::Graphics& g) override;
     void paintOverChildren (juce::Graphics& g) override;
-    void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
@@ -131,6 +157,7 @@ private:
 
     bool tabKeyUsed = true;
     TextLayout layout;
+    CaretComponent caret;
 
     float viewScaleFactor = 1.f;
     juce::Point<float> translation;

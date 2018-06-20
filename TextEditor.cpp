@@ -16,7 +16,53 @@ using namespace juce;
 
 
 //==============================================================================
-void mcl::TextLayout::replaceAll (const juce::String& content)
+mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
+{
+    setInterceptsMouseClicks (false, false);
+    startTimerHz (40);
+}
+
+void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
+{
+    transform = transformToUse;
+    repaint();
+}
+
+void mcl::CaretComponent::refreshSelections()
+{
+    phase = 0.f;
+    repaint();
+}
+
+void mcl::CaretComponent::paint (Graphics& g)
+{
+    g.addTransform (transform);
+    g.setColour (Colours::lightblue.withAlpha (squareWave (phase)));
+
+    for (const auto& selection : layout.getSelections())
+    {
+        auto b = layout.getGlyphBounds (selection.head).removeFromLeft (3.f);
+        g.fillRect (b);
+    }
+}
+float mcl::CaretComponent::squareWave (float wt) const
+{
+    const float delta = 0.222f;
+    const float A = 1.0;
+    return 0.5f + A / 3.14159f * std::atanf (std::cosf (wt) / delta);
+}
+
+void mcl::CaretComponent::timerCallback()
+{
+    phase += 1.6e-1;
+    repaint();
+}
+
+
+
+
+//==============================================================================
+void mcl::TextLayout::replaceAll (const String& content)
 {
     lines.clear();
 
@@ -51,7 +97,7 @@ float mcl::TextLayout::getVerticalPosition (int row, Metric metric) const
     }
 }
 
-juce::Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, juce::Range<int> columns) const
+Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
 {
     return getGlyphsForRow (row, true)
         .getBoundingBox (columns.getStart(), columns.getLength(), true)
@@ -59,22 +105,27 @@ juce::Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, juce::Range<int
         .withBottom (getVerticalPosition (row, Metric::bottom));
 }
 
-juce::GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
+Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
+{
+    return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
+}
+
+GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
 {
     GlyphArrangement glyphs;
 
     if (withTrailingSpace)
     {
-        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
+        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
     }
     else
     {
-        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
+        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
     }
     return glyphs;
 }
 
-juce::GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (juce::Rectangle<float> area) const
+GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, getNumRows() - 1, int (area.getY() / lineHeight));
@@ -88,7 +139,7 @@ juce::GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (juce::Rectangle<
     return glyphs;
 }
 
-juce::Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (juce::Point<float> position) const
+Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row = jlimit (0, getNumRows() - 1, int (position.y / lineHeight));
@@ -97,6 +148,8 @@ juce::Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (juce::Point<f
 
     if (position.x > 0.f)
     {
+        col = glyphs.getNumGlyphs();
+
         for (int n = 0; n < glyphs.getNumGlyphs(); ++n)
         {
             if (glyphs.getBoundingBox (n, 1, true).getHorizontalRange().contains (position.x))
@@ -113,12 +166,15 @@ juce::Point<int> mcl::TextLayout::findRowAndColumnNearestPosition (juce::Point<f
 
 
 //==============================================================================
-mcl::TextEditor::TextEditor()
+mcl::TextEditor::TextEditor() : caret (layout)
 {
     layout.setFont (Font ("Monaco", 16, 0));
+    translateView (10, 0);
+    setWantsKeyboardFocus (true);
+    addAndMakeVisible (caret);
 }
 
-void mcl::TextEditor::setText (const juce::String& text)
+void mcl::TextEditor::setText (const String& text)
 {
     layout.replaceAll (text);
     repaint();
@@ -126,6 +182,7 @@ void mcl::TextEditor::setText (const juce::String& text)
 
 void mcl::TextEditor::translateView (float dx, float dy)
 {
+    translation.x += dx;
     translation.y = jlimit (jmin (-0.f, -layout.getHeight() + getHeight()), 0.f, translation.y + dy);
     updateViewTransform();
 }
@@ -139,8 +196,13 @@ void mcl::TextEditor::scaleView (float scaleFactor)
 void mcl::TextEditor::updateViewTransform()
 {
     transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
-    // selection.setViewTransform (transform);
+    caret.setViewTransform (transform);
     repaint();
+}
+
+void mcl::TextEditor::resized()
+{
+    caret.setBounds (getLocalBounds());
 }
 
 void mcl::TextEditor::paint (Graphics& g)
@@ -154,16 +216,18 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
     layout.findGlyphsIntersecting (g.getClipBounds().toFloat().transformedBy (transform.inverted())).draw (g, transform);
 }
 
-void mcl::TextEditor::resized()
+void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
-    // selection.setBounds (getLocalBounds());
+    auto index = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
+    auto selection = Selection();
+    selection.head = index;
+    selection.tail = index;
+    layout.selections.clear();
+    layout.selections.add (selection);
+    caret.refreshSelections();
 }
 
-void mcl::TextEditor::mouseDown (const juce::MouseEvent& e)
-{
-}
-
-void mcl::TextEditor::mouseDrag (const juce::MouseEvent& e)
+void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 {
 }
 
@@ -173,15 +237,15 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
 {
-    translateView (d.deltaX * 600, d.deltaY * 600);
+    translateView (0, d.deltaY * 600);
 }
 
-void mcl::TextEditor::mouseMagnify (const juce::MouseEvent& e, float scaleFactor)
+void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 {
     scaleView (scaleFactor);
 }
 
-bool mcl::TextEditor::keyPressed (const juce::KeyPress& key)
+bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
     // if (key.getModifiers().isShiftDown())
     // {
