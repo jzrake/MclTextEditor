@@ -19,7 +19,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    startTimerHz (40);
+    // startTimerHz (40);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -56,6 +56,86 @@ void mcl::CaretComponent::timerCallback()
 {
     phase += 1.6e-1;
     repaint();
+}
+
+
+
+
+//==============================================================================
+class mcl::TextAction::Undoable : public juce::UndoableAction
+{
+public:
+    Undoable (TextAction operation, TextLayout& layout) : operation (operation), layout (layout)
+    {
+    }
+    bool perform() override
+    {
+        return operation.perform (layout);
+    }
+    bool undo() override
+    {
+        return operation.inverted().perform (layout);
+    }
+private:
+    TextAction operation;
+    TextLayout& layout;
+};
+
+
+
+
+//==============================================================================
+mcl::TextAction::TextAction()
+{
+}
+
+mcl::TextAction::TextAction (Callback callback, Navigation pre)
+: callback (callback)
+, navigationPre (pre)
+{
+}
+
+bool mcl::TextAction::perform (TextLayout& layout)
+{
+    auto& selections = layout.getSelections();
+    Report report;
+
+    switch (navigationPre)
+    {
+        case Navigation::forwardByChar : for (auto& s : selections) s.head.y += 1; report.navigationOcurred = true; break;
+        case Navigation::backwardByChar: for (auto& s : selections) s.head.y -= 1; report.navigationOcurred = true; break;
+        default: break;
+    }
+
+    if (callback)
+        callback (report);
+
+    return true;
+}
+
+mcl::TextAction mcl::TextAction::inverted()
+{
+    TextAction op;
+    op.callback       = callback;
+    op.replacementFwd = replacementRev;
+    op.replacementRev = replacementFwd;
+    op.navigationPre  = inverseOf (navigationPost);
+    op.navigationPost = inverseOf (navigationPre);
+    return op;
+}
+
+UndoableAction* mcl::TextAction::on (TextLayout& layout) const
+{
+    return new Undoable (*this, layout);
+}
+
+mcl::TextAction::Navigation mcl::TextAction::inverseOf (Navigation navigation)
+{
+    switch (navigation)
+    {
+        case Navigation::forwardByChar: return Navigation::backwardByChar;
+        default: return Navigation::backwardByChar;
+    }
 }
 
 
@@ -213,7 +293,10 @@ void mcl::TextEditor::paint (Graphics& g)
 void mcl::TextEditor::paintOverChildren (Graphics& g)
 {
     g.setColour (Colours::black);
-    layout.findGlyphsIntersecting (g.getClipBounds().toFloat().transformedBy (transform.inverted())).draw (g, transform);
+    layout.findGlyphsIntersecting (g.getClipBounds()
+                                   .toFloat()
+                                   .transformedBy (transform.inverted())
+                                   ).draw (g, transform);
 }
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
@@ -222,7 +305,11 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     auto selection = Selection();
     selection.head = index;
     selection.tail = index;
-    layout.selections.clear();
+
+    if (! e.mods.isCommandDown())
+    {
+        layout.selections.clear();
+    }
     layout.selections.add (selection);
     caret.refreshSelections();
 }
@@ -247,28 +334,51 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
-    // if (key.getModifiers().isShiftDown())
-    // {
-    //     if (key.isKeyCode (KeyPress::leftKey )) return selection.extendSelectionBackward();
-    //     if (key.isKeyCode (KeyPress::rightKey)) return selection.extendSelectionForward();
-    //     if (key.isKeyCode (KeyPress::upKey   )) return selection.extendSelectionUp();
-    //     if (key.isKeyCode (KeyPress::downKey )) return selection.extendSelectionDown();
-    // }
-    // else
-    // {
-    //     if (key.isKeyCode (KeyPress::backspaceKey)) return selection.deleteBackward();
-    //     if (key.isKeyCode (KeyPress::leftKey     )) return selection.moveCaretBackward();
-    //     if (key.isKeyCode (KeyPress::rightKey    )) return selection.moveCaretForward();
-    //     if (key.isKeyCode (KeyPress::upKey       )) return selection.moveCaretUp();
-    //     if (key.isKeyCode (KeyPress::downKey     )) return selection.moveCaretDown();
-    //     if (key.isKeyCode (KeyPress::returnKey   )) return selection.insertLineBreakAtCaret();
-    // }
+    auto makeUndoable = [this] (TextAction action)
+    {
+        undo.beginNewTransaction();
+        return undo.perform (action.on (layout));
+    };
+    auto callback = [this] (TextAction::Report report)
+    {
+        if (report.navigationOcurred)
+        {
+            caret.refreshSelections();
+        }
+        if (! report.textAreaAffected.isEmpty())
+        {
+            repaint (report.textAreaAffected.transformedBy (transform).getSmallestIntegerContainer());
+        }
+    };
+
+    if (key.getModifiers().isShiftDown())
+    {
+//        if (key.isKeyCode (KeyPress::leftKey )) return selection.extendSelectionBackward();
+//        if (key.isKeyCode (KeyPress::rightKey)) return selection.extendSelectionForward();
+//        if (key.isKeyCode (KeyPress::upKey   )) return selection.extendSelectionUp();
+//        if (key.isKeyCode (KeyPress::downKey )) return selection.extendSelectionDown();
+    }
+    else
+    {
+        if (key.isKeyCode (KeyPress::rightKey    )) return makeUndoable (TextAction (callback, TextAction::Navigation::forwardByChar));
+        if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoable (TextAction (callback, TextAction::Navigation::backwardByChar));
+
+//        if (key.isKeyCode (KeyPress::backspaceKey)) return selection.deleteBackward();
+//        if (key.isKeyCode (KeyPress::leftKey     )) return selection.moveCaretBackward();
+//        if (key.isKeyCode (KeyPress::rightKey    )) return selection.moveCaretForward();
+//        if (key.isKeyCode (KeyPress::upKey       )) return selection.moveCaretUp();
+//        if (key.isKeyCode (KeyPress::downKey     )) return selection.moveCaretDown();
+//        if (key.isKeyCode (KeyPress::returnKey   )) return selection.insertLineBreakAtCaret();
+    }
 
     // if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return selection.moveCaretToLineStart();
     // if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return selection.moveCaretToLineEnd();
     // if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return selection.deleteForward();
 
     // if (key == KeyPress ('v', ModifierKeys::commandModifier, 0)) return selection.insertTextAtCaret (SystemClipboard::getTextFromClipboard());
+
+    if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
+    if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
     // if (key.getTextCharacter() >= ' ' || (tabKeyUsed && (key.getTextCharacter() == '\t')))
     // {

@@ -66,6 +66,55 @@ private:
 
 
 //==============================================================================
+/**
+    All text layout actions can be expressed as two operations performed in serial:
+ 
+    1. A (possible) modification to the selections
+    2. A (possible) replacement of the text in those selections
+    3. A (possible) modification to the selections
+ 
+    The symmetry of the operation means that computing the inverse is trivial.
+*/
+class mcl::TextAction
+{
+public:
+    enum class Navigation
+    {
+        identity,
+        forwardByChar, backwardByChar,
+        forwardByWord, backwardByWord,
+        toLineStart, toLineStartInverse,
+        toLineEnd, toLineEndInverse,
+    };
+    
+    struct Report
+    {
+        bool navigationOcurred = false;
+        juce::Rectangle<float> textAreaAffected;
+    };
+    using Callback = std::function<void(Report)>;
+
+    TextAction();
+    TextAction (Callback callback, Navigation pre);
+    bool perform (TextLayout& layout);
+    TextAction inverted();
+    juce::UndoableAction* on (TextLayout& layout) const;
+
+private:
+    class Undoable;
+    static Navigation inverseOf (Navigation);
+    Callback callback = nullptr;
+    Navigation navigationPre  = Navigation::identity;
+    Navigation navigationPost = Navigation::identity;
+    juce::StringArray replacementFwd;
+    juce::StringArray replacementRev;
+    juce::Array<Selection> priorSelection;
+};
+
+
+
+
+//==============================================================================
 class mcl::TextLayout
 {
 public:
@@ -117,6 +166,7 @@ public:
 
     /** Return the current selection state. */
     const juce::Array<Selection>& getSelections() const { return selections; }
+    juce::Array<Selection>& getSelections() { return selections; }
 
 private:
     friend class TextEditor; // !!!
@@ -162,4 +212,5 @@ private:
     float viewScaleFactor = 1.f;
     juce::Point<float> translation;
     juce::AffineTransform transform;
+    juce::UndoManager undo;
 };
