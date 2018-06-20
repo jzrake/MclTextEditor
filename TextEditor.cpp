@@ -929,9 +929,28 @@ void mcl::TextEditor::updateViewTransform()
     repaint();
 }
 
+void mcl::TextEditor::paintRowsInAlternatingColors (juce::Graphics& g)
+{
+    g.saveState();
+    g.addTransform (transform);
+
+    for (int n = 0; n < layout.getNumRows(); ++n)
+    {
+        auto rect = Rectangle<float>();
+
+        rect.setHorizontalRange (Range<float> (0, getWidth()));
+        rect.setVerticalRange (layout.getVerticalRangeForRow(n));
+
+        g.setColour (n % 2 == 0 ? Colours::lightblue.withAlpha (0.2f) : Colours::transparentBlack);
+        g.fillRect (rect);
+    }
+    g.restoreState();
+}
+
 void mcl::TextEditor::paint (Graphics& g)
 {
     g.fillAll (findColour (juce::TextEditor::backgroundColourId));
+    paintRowsInAlternatingColors (g);
 }
 
 void mcl::TextEditor::paintOverChildren (Graphics& g)
