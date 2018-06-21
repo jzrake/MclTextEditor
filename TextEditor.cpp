@@ -213,6 +213,30 @@ Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection
     }
     else
     {
+        int r0, c0, r1, c1;
+
+        if (selection.head.x > selection.tail.x) // for a forward selection
+        {
+            r0 = selection.tail.x;
+            c0 = selection.tail.y;
+            r1 = selection.head.x;
+            c1 = selection.head.y;
+        }
+        else // for a backward selection
+        {
+            r0 = selection.head.x;
+            c0 = selection.head.y;
+            r1 = selection.tail.x;
+            c1 = selection.tail.y;
+        }
+
+        patches.add (getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1)));
+        patches.add (getBoundsOnRow (r1, Range<int> (0, c1)));
+
+        for (int n = r0 + 1; n < r1; ++n)
+        {
+            patches.add (getBoundsOnRow (n, Range<int> (0, getNumColumns (n) + 1)));
+        }
     }
     return patches;
 }
@@ -249,8 +273,8 @@ GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpa
 GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
-    auto row0 = jlimit (0, getNumRows() - 1, int (area.getY() / lineHeight));
-    auto row1 = jlimit (0, getNumRows() - 1, int (area.getBottom() / lineHeight));
+    auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
+    auto row1 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getBottom() / lineHeight));
     auto glyphs = GlyphArrangement();
 
     for (int n = row0; n <= row1; ++n)
@@ -263,7 +287,7 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area)
 Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
-    auto row = jlimit (0, getNumRows() - 1, int (position.y / lineHeight));
+    auto row = jlimit (0, jmax (getNumRows() - 1, 0), int (position.y / lineHeight));
     auto col = 0;
     auto glyphs = getGlyphsForRow (row);
 
@@ -501,8 +525,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     {
         if (key.isKeyCode (KeyPress::rightKey )) return makeUndoableExpandSelection (Navigation::forwardByChar);
         if (key.isKeyCode (KeyPress::leftKey  )) return makeUndoableExpandSelection (Navigation::backwardByChar);
-//        if (key.isKeyCode (KeyPress::upKey   )) return selection.extendSelectionUp();
-//        if (key.isKeyCode (KeyPress::downKey )) return selection.extendSelectionDown();
+        if (key.isKeyCode (KeyPress::downKey  )) return makeUndoableExpandSelection (Navigation::forwardByLine);
+        if (key.isKeyCode (KeyPress::upKey    )) return makeUndoableExpandSelection (Navigation::backwardByLine);
     }
     else
     {
@@ -535,3 +559,4 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 {
     return MouseCursor::IBeamCursor;
 }
+

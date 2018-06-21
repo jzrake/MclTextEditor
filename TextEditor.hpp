@@ -100,7 +100,7 @@ private:
 
 //==============================================================================
 /**
-    All text layout actions can be expressed as two operations performed in serial:
+    All text layout actions can be expressed as three operations performed in serial:
  
     1. A (possible) modification to the selections
     2. A (possible) replacement of the text in those selections
@@ -267,3 +267,4 @@ private:
     juce::AffineTransform transform;
     juce::UndoManager undo;
 };
+
