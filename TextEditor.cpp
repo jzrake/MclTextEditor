@@ -19,7 +19,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    startTimerHz (40);
+    // startTimerHz (40);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -37,7 +37,7 @@ void mcl::CaretComponent::refreshSelections()
 void mcl::CaretComponent::paint (Graphics& g)
 {
     g.addTransform (transform);
-    g.setColour (Colours::lightblue.withAlpha (squareWave (phase)));
+    g.setColour (Colours::blue.withAlpha (squareWave (phase)));
 
     for (const auto& selection : layout.getSelections())
     {
@@ -129,15 +129,27 @@ mcl::TextAction::TextAction (Callback callback, juce::Array<Selection> targetSel
 {
 }
 
+mcl::TextAction::TextAction (Callback callback, const juce::StringArray& contentToInsert)
+: callback (callback)
+, replacementFwd (contentToInsert)
+{
+}
+
 bool mcl::TextAction::perform (TextLayout& layout)
 {
     navigationRev = layout.getSelections();
     Report report;
 
-    if (navigationFwd != navigationRev)
+    if (! navigationFwd.isEmpty() && navigationFwd != navigationRev)
     {
-        report.navigationOcurred = true;
         layout.replaceSelections (navigationFwd);
+        report.navigationOcurred = true;
+    }
+    else if (! replacementFwd.isEmpty())
+    {
+//        replacementRev = layout.replaceSelectedText (replacementFwd);
+//        report.textAreaAffected = layout.getBounds();
+//        report.navigationOcurred = true;
     }
 
     if (callback)
@@ -239,6 +251,17 @@ Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection
         }
     }
     return patches;
+}
+
+juce::Rectangle<float> mcl::TextLayout::getBounds() const
+{
+    auto bounds = Rectangle<float>();
+
+    for (int n = 0; n < getNumRows(); ++n)
+    {
+        bounds = bounds.getUnion (getBoundsOnRow (n, Range<int> (0, getNumColumns (n))));
+    }
+    return bounds;
 }
 
 Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
@@ -391,6 +414,145 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, boo
     }
 }
 
+//StringArray mcl::TextLayout::replaceSelectedText (const StringArray& content)
+//{
+//    jassert (content.size() == selections.size());
+//
+//    StringArray existing;
+//
+//    for (int n = 0; n < content.size(); ++n)
+//    {
+//        auto& s = selections.getReference (n);
+//        auto insertion = content[n];
+//
+//        if (insertion.getLastCharacter() == KeyPress::backspaceKey)
+//        {
+//            if (s.head.y == s.tail.y)
+//            {
+//                prev (s.head);
+//            }
+//            insertion.clear();
+//        }
+//        else if (insertion.getLastCharacter() == KeyPress::deleteKey)
+//        {
+//            if (s.head.y == s.tail.y)
+//            {
+//                next (s.head);
+//            }
+//            insertion.clear();
+//        }
+//
+//        if (s.head.x == s.tail.x) // same row
+//        {
+//            const auto& line = lines[s.head.x];
+//            const auto c0 = jmin (s.head.y, s.tail.y);
+//            const auto c1 = jmax (s.head.y, s.tail.y);
+//
+//            auto modifiedLine = line.substring (0, c0) + insertion + line.substring (c1);
+//
+//            if (insertion.containsChar ('\n'))
+//            {
+//                lines.remove (s.head.x);
+//
+//                for (const auto& sub : StringArray::fromLines (modifiedLine))
+//                {
+//                    lines.insert (s.head.x++, sub);
+//                }
+//                s.head.x--;
+//                s.head.y = 0;
+//            }
+//            else
+//            {
+//                lines.set (s.head.x, modifiedLine);
+//
+//                if (s.tail.y <= s.head.y)
+//                {
+//                    s.head.y += insertion.length() - (c1 - c0);
+//                }
+//            }
+//            s.tail = s.head;
+//        }
+//        else
+//        {
+//            DBG("Replace text over multiple lines not implemented yet");
+//        }
+//    }
+//    return existing;
+//}
+
+String mcl::TextLayout::getSelectionContent (Selection s) const
+{
+    if (s.head == s.tail)
+    {
+    }
+    else if (s.head.x == s.tail.x)
+    {
+    }
+    return String();
+}
+
+mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
+{
+    if (transaction.selection.isSingleLine())
+    {
+        auto inf = std::numeric_limits<float>::max();
+        Transaction t = transaction.accountingForSpecialCharacters (*this);
+        Transaction r; // reciprocal
+        Selection s = t.selection;
+
+        const auto c0 = jmin (s.head.y, s.tail.y);
+        const auto c1 = jmax (s.head.y, s.tail.y);
+        const auto& line = lines[s.head.x];
+
+        lines.set (s.head.x, line.substring (0, c0) + t.content + line.substring (c1));
+
+        r.selection = Selection (s.head.x, c0, s.tail.x, c0 + t.content.length());
+        r.content = line.substring (c0, c1); // the content being removed
+        r.affectedArea = Rectangle<float> (0, 0, inf, inf);
+
+        return r;
+    }
+    else
+    {
+        DBG("multi-line transactions not implemented yet");
+        return Transaction();
+    }
+}
+
+
+
+
+//==============================================================================
+mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLayout& layout) const
+{
+    Transaction t = *this;
+    auto& s = t.selection;
+
+    if (content.getLastCharacter() == KeyPress::backspaceKey)
+    {
+        if (s.head.y == s.tail.y)
+        {
+            layout.prev (s.head);
+        }
+        t.content.clear();
+    }
+    else if (content.getLastCharacter() == KeyPress::deleteKey)
+    {
+        if (s.head.y == s.tail.y)
+        {
+            layout.next (s.head);
+        }
+        t.content.clear();
+    }
+    return t;
+}
+
+Array<mcl::Transaction> mcl::Transaction::asSingleLineTransactions (const TextLayout& layout) const
+{
+    Array<Transaction> transactions;
+    return transactions;
+}
+
 
 
 
@@ -541,24 +703,46 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoableNav (Navigation::backwardByChar);
         if (key.isKeyCode (KeyPress::downKey     )) return makeUndoableNav (Navigation::forwardByLine);
         if (key.isKeyCode (KeyPress::upKey       )) return makeUndoableNav (Navigation::backwardByLine);
-
-//        if (key.isKeyCode (KeyPress::backspaceKey)) return selection.deleteBackward();
-//        if (key.isKeyCode (KeyPress::returnKey   )) return selection.insertLineBreakAtCaret();
     }
 
     if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return makeUndoableNav (Navigation::toLineStart);
     if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return makeUndoableNav (Navigation::toLineEnd);
-
-    // if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0)) return selection.deleteForward();
-    // if (key == KeyPress ('v', ModifierKeys::commandModifier, 0)) return selection.insertTextAtCaret (SystemClipboard::getTextFromClipboard());
-
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
-    // if (key.getTextCharacter() >= ' ' || (tabKeyUsed && (key.getTextCharacter() == '\t')))
-    // {
-    //     return selection.insertCharacterAtCaret (key.getTextCharacter());
-    // }
+
+    auto insert = [this] (String insertion)
+    {
+        Transaction t;
+        t.content = insertion;
+        t.selection = layout.getSelections().getFirst();
+
+        auto r = layout.fulfill (t);
+        layout.replaceSelections ({ Selection (r.selection.tail) });
+
+        if (! r.affectedArea.isEmpty())
+        {
+            repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
+        }
+        return true;
+    };
+
+    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0))
+    {
+        return insert (SystemClipboard::getTextFromClipboard());
+    }
+    if (key.isKeyCode (KeyPress::returnKey))
+    {
+        return insert ("\n");
+    }
+    if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0))
+    {
+        return insert (String::charToString (KeyPress::deleteKey));
+    }
+    if (key.getTextCharacter() >= ' ' || (tabKeyUsed && (key.getTextCharacter() == '\t')))
+    {
+        return insert (String::charToString (key.getTextCharacter()));
+    }
     return false;
 }
 

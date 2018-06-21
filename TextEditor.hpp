@@ -25,6 +25,7 @@ namespace mcl {
     class TextAction;         // visits a layout, operates on text and caret ranges, is undoable
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;         // is a component, issues actions, computes view transform
+    class Transaction;        // the new formulation of 'action', is undoable
     class Selection;          // stores leading and trailing edges of an editing region
 }
 
@@ -42,13 +43,40 @@ struct mcl::Selection
     Selection() {}
     Selection (juce::Point<int> head) : head (head), tail (head) {}
     Selection (juce::Point<int> head, juce::Point<int> tail) : head (head), tail (tail) {}
+    Selection (int r0, int c0, int r1, int c1) : head (r0, c0), tail (r1, c1) {}
 
     bool operator== (const Selection& other) const
     {
         return head == other.head && tail == other.tail;
     }
+
+    /** Whether or not this selection is only a single line. */
+    bool isSingleLine() const { return head.x == tail.x; }
+
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
+};
+
+
+
+
+//==============================================================================
+struct mcl::Transaction
+{
+    /** Return a copy of this transaction, corrected for delete and backspace
+        characters. For example, if content == "\b" then the selection head is
+        decremented and the content is erased.
+     */
+    Transaction accountingForSpecialCharacters (const TextLayout& layout) const;
+
+    /** Return a sequence of transactions that are equivalent to this one,
+        but where each affects only a single line in the layout.
+     */
+    juce::Array<Transaction> asSingleLineTransactions (const TextLayout& layout) const;
+
+    mcl::Selection selection;
+    juce::String content;
+    juce::Rectangle<float> affectedArea;
 };
 
 
@@ -107,6 +135,11 @@ private:
     3. A (possible) modification to the selections
  
     The symmetry of the operation means that computing the inverse is trivial.
+
+    Insert character (assuming no initial selection):
+    1. Do nothing
+    2. Insert text at caret
+    3. Put selection at end of insertion
 */
 class mcl::TextAction
 {
@@ -116,10 +149,11 @@ public:
         bool navigationOcurred = false;
         juce::Rectangle<float> textAreaAffected;
     };
-    using Callback = std::function<void(Report)>;
+    using Callback = std::function<void (Report)>;
 
     TextAction();
     TextAction (Callback callback, juce::Array<Selection> targetSelection);
+    TextAction (Callback callback, const juce::StringArray& contentToInsert);
     bool perform (TextLayout& layout);
     TextAction inverted();
     juce::UndoableAction* on (TextLayout& layout) const;
@@ -179,6 +213,9 @@ public:
     /** Return an array of rectangles covering the given selection. */
     juce::Array<juce::Rectangle<float>> getSelectionRegion (Selection selection) const;
 
+    /** Return the bounds of the entire layout. */
+    juce::Rectangle<float> getBounds() const;
+
     /** Return the bounding box for the glyphs on the given row, and within
         the given range of columns. The range start must not be negative, and
         must be smaller than ncols. The range end is exclusive, and may be as
@@ -220,6 +257,19 @@ public:
 
     /** Return the current selection state, possibly operated on. */
     juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity, bool fixingTail=false) const;
+
+    /** Replace the content of each of the selections respectively, and return
+        the removed content.
+    */
+    // juce::StringArray replaceSelectedText (const juce::StringArray& content);
+
+    /** Return the content within the given selection, with newlines if the
+        selection spans muliple lines.
+     */
+    juce::String getSelectionContent (Selection selection) const;
+
+    /** Apply a transaction to the layout, and return its reciprocal. */
+    Transaction fulfill (const Transaction& transaction);
 
 private:
     float lineSpacing = 1.25f;

@@ -950,7 +950,7 @@ void mclv1::TextEditor::paintRowsInAlternatingColors (juce::Graphics& g)
 void mclv1::TextEditor::paint (Graphics& g)
 {
     g.fillAll (findColour (juce::TextEditor::backgroundColourId));
-    paintRowsInAlternatingColors (g);
+    // paintRowsInAlternatingColors (g);
 }
 
 void mclv1::TextEditor::paintOverChildren (Graphics& g)
