@@ -142,7 +142,7 @@ bool mcl::TextAction::perform (TextLayout& layout)
 
     if (! navigationFwd.isEmpty() && navigationFwd != navigationRev)
     {
-        layout.replaceSelections (navigationFwd);
+        layout.setSelections (navigationFwd);
         report.navigationOcurred = true;
     }
     else if (! replacementFwd.isEmpty())
@@ -172,6 +172,42 @@ mcl::TextAction mcl::TextAction::inverted()
 UndoableAction* mcl::TextAction::on (TextLayout& layout) const
 {
     return new Undoable (*this, layout);
+}
+
+
+
+
+//==============================================================================
+bool mcl::Selection::isOriented() const
+{
+    return ! (head.x > tail.x || (head.x == tail.x && head.y > tail.y));
+}
+
+mcl::Selection mcl::Selection::oriented() const
+{
+    Selection s = *this;
+
+    if (! isOriented())
+        std::swap (s.head, s.tail);
+
+    return s;
+}
+
+mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) const
+{
+    Selection s = *this;
+
+    if (isOriented())
+    {
+        s.head.y = 0;
+        s.tail.y = layout.getNumColumns (s.tail.x);
+    }
+    else
+    {
+        s.head.y = layout.getNumColumns (s.head.x);
+        s.tail.y = 0;
+    }
+    return s;
 }
 
 
@@ -414,108 +450,73 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, boo
     }
 }
 
-//StringArray mcl::TextLayout::replaceSelectedText (const StringArray& content)
-//{
-//    jassert (content.size() == selections.size());
-//
-//    StringArray existing;
-//
-//    for (int n = 0; n < content.size(); ++n)
-//    {
-//        auto& s = selections.getReference (n);
-//        auto insertion = content[n];
-//
-//        if (insertion.getLastCharacter() == KeyPress::backspaceKey)
-//        {
-//            if (s.head.y == s.tail.y)
-//            {
-//                prev (s.head);
-//            }
-//            insertion.clear();
-//        }
-//        else if (insertion.getLastCharacter() == KeyPress::deleteKey)
-//        {
-//            if (s.head.y == s.tail.y)
-//            {
-//                next (s.head);
-//            }
-//            insertion.clear();
-//        }
-//
-//        if (s.head.x == s.tail.x) // same row
-//        {
-//            const auto& line = lines[s.head.x];
-//            const auto c0 = jmin (s.head.y, s.tail.y);
-//            const auto c1 = jmax (s.head.y, s.tail.y);
-//
-//            auto modifiedLine = line.substring (0, c0) + insertion + line.substring (c1);
-//
-//            if (insertion.containsChar ('\n'))
-//            {
-//                lines.remove (s.head.x);
-//
-//                for (const auto& sub : StringArray::fromLines (modifiedLine))
-//                {
-//                    lines.insert (s.head.x++, sub);
-//                }
-//                s.head.x--;
-//                s.head.y = 0;
-//            }
-//            else
-//            {
-//                lines.set (s.head.x, modifiedLine);
-//
-//                if (s.tail.y <= s.head.y)
-//                {
-//                    s.head.y += insertion.length() - (c1 - c0);
-//                }
-//            }
-//            s.tail = s.head;
-//        }
-//        else
-//        {
-//            DBG("Replace text over multiple lines not implemented yet");
-//        }
-//    }
-//    return existing;
-//}
-
 String mcl::TextLayout::getSelectionContent (Selection s) const
 {
-    if (s.head == s.tail)
+    s = s.oriented();
+
+    if (s.head.x == s.tail.x)
     {
+        return lines[s.head.x].substring (s.head.y, s.tail.y);
     }
-    else if (s.head.x == s.tail.x)
+    else
     {
+        String content = lines[s.head.x].substring (s.head.y) + "\n";
+
+        for (int row = s.head.x + 1; row < s.tail.x; ++row)
+        {
+            content += lines[row] + "\n";
+        }
+        content += lines[s.tail.x].substring (0, s.tail.y);
+        return content;
     }
-    return String();
 }
 
 mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 {
+    auto inf = std::numeric_limits<float>::max();
+    const auto t = transaction.accountingForSpecialCharacters (*this);
+    const auto s = t.selection.oriented();
+
     if (transaction.selection.isSingleLine())
     {
-        auto inf = std::numeric_limits<float>::max();
-        Transaction t = transaction.accountingForSpecialCharacters (*this);
-        Transaction r; // reciprocal
-        Selection s = t.selection;
-
-        const auto c0 = jmin (s.head.y, s.tail.y);
-        const auto c1 = jmax (s.head.y, s.tail.y);
+        const auto c0 = s.head.y;
+        const auto c1 = s.tail.y;
         const auto& line = lines[s.head.x];
 
         lines.set (s.head.x, line.substring (0, c0) + t.content + line.substring (c1));
 
+        Transaction r;
         r.selection = Selection (s.head.x, c0, s.tail.x, c0 + t.content.length());
         r.content = line.substring (c0, c1); // the content being removed
         r.affectedArea = Rectangle<float> (0, 0, inf, inf);
-
         return r;
     }
     else
     {
-        DBG("multi-line transactions not implemented yet");
-        return Transaction();
+        // 1. Get the content on the affected rows as a single string L.
+        // 2. Compute the linear start index i = s.head.y
+        // 3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
+        // 4. Replace L between i and j with content.
+        // 5. Replace the affected lines of text.
+
+        const auto L = getSelectionContent (s.horizontallyMaximized (*this));
+        const auto i = s.head.y;
+        const auto j = L.lastIndexOf ("\n") + s.tail.y + 1;
+        const auto M = L.substring (0, i) + t.content + L.substring (j);
+
+        lines.removeRange (s.head.x, s.tail.x - s.head.x + 1);
+        int row = s.head.x;
+
+        for (const auto& line : StringArray::fromLines (M))
+        {
+            lines.insert (row++, line);
+        }
+
+        Transaction r;
+        r.selection = Selection (s.head.x, s.head.y, row - 1, s.head.y + 1);
+        r.content = getSelectionContent (s);
+        r.affectedArea = Rectangle<float> (0, 0, inf, inf);
+        return r;
     }
 }
 
@@ -547,12 +548,6 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
     return t;
 }
 
-Array<mcl::Transaction> mcl::Transaction::asSingleLineTransactions (const TextLayout& layout) const
-{
-    Array<Transaction> transactions;
-    return transactions;
-}
-
 
 
 
@@ -572,7 +567,7 @@ mcl::TextEditor::TextEditor() : highlight (layout), caret (layout)
         }
     };
 
-    layout.replaceSelections ({ Selection() });
+    layout.setSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
     translateView (10, 0);
     setWantsKeyboardFocus (true);
@@ -718,7 +713,10 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         t.selection = layout.getSelections().getFirst();
 
         auto r = layout.fulfill (t);
-        layout.replaceSelections ({ Selection (r.selection.tail) });
+
+        layout.setSelections ({ Selection (r.selection.tail) });
+        caret.refreshSelections();
+        highlight.refreshSelections();
 
         if (! r.affectedArea.isEmpty())
         {

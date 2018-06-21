@@ -33,6 +33,15 @@ namespace mcl {
 
 
 //==============================================================================
+/**
+    A data structure encapsulating a contiguous range within a TextLayout.
+    The head and tail refer to the leading and trailing edges of a selected
+    region (the head is where the caret would be rendered). The selection is
+    exclusive with respect to the range of columns (y), but inclusive with
+    respect to the range of rows (x). It is said to be oriented when
+    head <= tail, and singular when head == tail, in which case it would be
+    rendered without any highlighting.
+ */
 struct mcl::Selection
 {
     enum class Part
@@ -50,8 +59,23 @@ struct mcl::Selection
         return head == other.head && tail == other.tail;
     }
 
+    /** Whether or not this selection covers any extent. */
+    bool isSingular() const { return head == tail; }
+
     /** Whether or not this selection is only a single line. */
     bool isSingleLine() const { return head.x == tail.x; }
+
+    /** Whether the head precedes the tail. */
+    bool isOriented() const;
+
+    /** Return a copy of this selection, oriented so that head <= tail. */
+    Selection oriented() const;
+
+    /** Return a copy of this selection, with head and tail at the beginning and end
+        of their respective lines if the selection is oriented, or otherwise with
+        the head and tail at the end and beginning of their respective lines.
+     */
+    Selection horizontallyMaximized (const TextLayout& layout) const;
 
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
@@ -68,11 +92,6 @@ struct mcl::Transaction
         decremented and the content is erased.
      */
     Transaction accountingForSpecialCharacters (const TextLayout& layout) const;
-
-    /** Return a sequence of transactions that are equivalent to this one,
-        but where each affects only a single line in the layout.
-     */
-    juce::Array<Transaction> asSingleLineTransactions (const TextLayout& layout) const;
 
     mcl::Selection selection;
     juce::String content;
@@ -196,7 +215,7 @@ public:
 
     void replaceAll (const juce::String& content);
 
-    void replaceSelections (const juce::Array<Selection>& newSelections) { selections = newSelections; }
+    void setSelections (const juce::Array<Selection>& newSelections) { selections = newSelections; }
 
     /** Get the number of rows in the layout. */
     int getNumRows() const;
@@ -257,11 +276,6 @@ public:
 
     /** Return the current selection state, possibly operated on. */
     juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity, bool fixingTail=false) const;
-
-    /** Replace the content of each of the selections respectively, and return
-        the removed content.
-    */
-    // juce::StringArray replaceSelectedText (const juce::StringArray& content);
 
     /** Return the content within the given selection, with newlines if the
         selection spans muliple lines.
