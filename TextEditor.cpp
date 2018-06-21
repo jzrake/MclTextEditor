@@ -487,6 +487,13 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 
 void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 {
+    if (e.mouseWasDraggedSinceMouseDown())
+    {
+        auto selection = layout.getSelections().getFirst();
+        selection.head = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
+        undo.beginNewTransaction();
+        undo.perform (TextAction (callback, { selection }).on (layout));
+    }
 }
 
 void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
