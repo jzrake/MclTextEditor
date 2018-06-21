@@ -59,6 +59,11 @@ struct mcl::Selection
         return head == other.head && tail == other.tail;
     }
 
+    juce::String toString() const
+    {
+        return "(" + head.toString() + ") - (" + tail.toString() + ")";
+    }
+
     /** Whether or not this selection covers any extent. */
     bool isSingular() const { return head == tail; }
 

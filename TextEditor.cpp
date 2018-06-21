@@ -80,6 +80,9 @@ void mcl::HighlightComponent::refreshSelections()
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
+    g.setColour (Colours::grey);
+    g.drawText (layout.getSelections().getFirst().toString(), getLocalBounds().toFloat(), Justification::bottomRight);
+
     g.addTransform (transform);
     g.setColour (Colours::black.withAlpha (0.2f));
 
@@ -89,6 +92,7 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
         {
             g.fillRect (patch);
         }
+
     }
 }
 
@@ -384,13 +388,6 @@ bool mcl::TextLayout::next (juce::Point<int>& index) const
 
 bool mcl::TextLayout::prev (juce::Point<int>& index) const
 {
-    /*
-     During vertical navigations, the column index might be greater than the row
-     length, in order to restore the column value if navigating back to longer
-     lines. This mode is canceled by backward horizontal navigation.
-     */
-    index.y = jmin (index.y, getNumColumns (index.x));
-
     if (index.y > 0)
     {
         index.y -= 1;
@@ -410,6 +407,7 @@ bool mcl::TextLayout::nextRow (juce::Point<int>& index) const
     if (index.x < getNumRows())
     {
         index.x += 1;
+        index.y = jmin (index.y, getNumColumns (index.x));
         return true;
     }
     return false;
@@ -420,6 +418,7 @@ bool mcl::TextLayout::prevRow (juce::Point<int>& index) const
     if (index.x > 0)
     {
         index.x -= 1;
+        index.y = jmin (index.y, getNumColumns (index.x));
         return true;
     }
     return false;
@@ -473,52 +472,70 @@ String mcl::TextLayout::getSelectionContent (Selection s) const
 
 mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 {
-    auto inf = std::numeric_limits<float>::max();
+    // 1. Get the content on the affected rows as a single string L.
+    // 2. Compute the linear start index i = s.head.y
+    // 3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
+    // 4. Replace L between i and j with content.
+    // 5. Replace the affected lines of text.
+
     const auto t = transaction.accountingForSpecialCharacters (*this);
     const auto s = t.selection.oriented();
+    const auto L = getSelectionContent (s.horizontallyMaximized (*this));
+    const auto i = s.head.y;
+    const auto j = L.lastIndexOf ("\n") + s.tail.y + 1;
+    const auto M = L.substring (0, i) + t.content + L.substring (j);
 
-    if (transaction.selection.isSingleLine())
+    lines.removeRange (s.head.x, s.tail.x - s.head.x + 1);
+    int row = s.head.x;
+
+    if (M.isEmpty())
     {
-        const auto c0 = s.head.y;
-        const auto c1 = s.tail.y;
-        const auto& line = lines[s.head.x];
+        lines.insert (row++, String());
+    }
+    for (const auto& line : StringArray::fromLines (M))
+    {
+        lines.insert (row++, line);
+    }
 
-        lines.set (s.head.x, line.substring (0, c0) + t.content + line.substring (c1));
+    /*
+     Computing the post selection tail column is not elegant...
+     */
+    int lengthOfFinalContentLine = t.content.length() - jmax (0, t.content.lastIndexOf ("\n"));
+    int finalTailColumn;
 
-        Transaction r;
-        r.selection = Selection (s.head.x, c0, s.tail.x, c0 + t.content.length());
-        r.content = line.substring (c0, c1); // the content being removed
-        r.affectedArea = Rectangle<float> (0, 0, inf, inf);
-        return r;
+    if (t.content == "\n")
+    {
+        finalTailColumn = 0;
+    }
+    else if (s.isSingleLine() || t.content.isEmpty())
+    {
+        finalTailColumn = lengthOfFinalContentLine + s.head.y;
     }
     else
     {
-        // 1. Get the content on the affected rows as a single string L.
-        // 2. Compute the linear start index i = s.head.y
-        // 3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
-        // 4. Replace L between i and j with content.
-        // 5. Replace the affected lines of text.
-
-        const auto L = getSelectionContent (s.horizontallyMaximized (*this));
-        const auto i = s.head.y;
-        const auto j = L.lastIndexOf ("\n") + s.tail.y + 1;
-        const auto M = L.substring (0, i) + t.content + L.substring (j);
-
-        lines.removeRange (s.head.x, s.tail.x - s.head.x + 1);
-        int row = s.head.x;
-
-        for (const auto& line : StringArray::fromLines (M))
-        {
-            lines.insert (row++, line);
-        }
-
-        Transaction r;
-        r.selection = Selection (s.head.x, s.head.y, row - 1, s.head.y + 1);
-        r.content = getSelectionContent (s);
-        r.affectedArea = Rectangle<float> (0, 0, inf, inf);
-        return r;
+        finalTailColumn = lengthOfFinalContentLine;
     }
+
+    auto inf = std::numeric_limits<float>::max();
+    Transaction r;
+    r.selection = Selection (s.head.x, s.head.y, row - 1, finalTailColumn);
+    r.content = L.substring (i, j);
+    r.affectedArea = Rectangle<float> (0, 0, inf, inf);
+    return r;
 }
+
+
+
+
+//    t.content == "\n" ? 0 : lengthOfFinalContentLine + (s.isSingleLine() || t.content.isEmpty() ? s.head.y : 0));
+//    DBG("removing " << s.tail.x - s.head.x + 1);
+//    DBG("adding " << StringArray::fromLines (M).size());
+//    DBG("i = " << i);
+//    DBG("j = " << j);
+//    DBG("L = " << L.replace ("\n", "NEWLINE"));
+//    DBG("M = " << M.replace ("\n", "NEWLINE"));
+//    DBG("lengthOfFinalContentLine = " << lengthOfFinalContentLine);
+//    DBG("new tail = " << r.selection.tail.y);
 
 
 
@@ -529,6 +546,10 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
     Transaction t = *this;
     auto& s = t.selection;
 
+    if (content.getLastCharacter() == KeyPress::tabKey)
+    {
+        t.content = "    ";
+    }
     if (content.getLastCharacter() == KeyPress::backspaceKey)
     {
         if (s.head.y == s.tail.y)
