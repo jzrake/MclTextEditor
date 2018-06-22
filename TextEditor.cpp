@@ -62,6 +62,50 @@ void mcl::CaretComponent::timerCallback()
 
 
 //==========================================================================
+mcl::GutterComponent::GutterComponent (const TextLayout& layout) : layout (layout)
+{
+    setInterceptsMouseClicks (false, false);
+}
+
+void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transformToUse)
+{
+    transform = transformToUse;
+    repaint();
+}
+
+void mcl::GutterComponent::refreshSelections()
+{
+    repaint();
+}
+
+void mcl::GutterComponent::paint (juce::Graphics& g)
+{
+    g.setColour (Colours::whitesmoke);
+    g.fillRect (getLocalBounds().removeFromLeft (24));
+
+    g.setColour (Colours::whitesmoke.darker (0.1f));
+
+    for (const auto& s : layout.getSelections())
+    {
+        auto patch = layout.getBoundsOnRow (s.head.x, juce::Range<int>(0, 1));
+        g.fillRect (patch.transformedBy (transform).withLeft (0).withWidth (24));
+    }
+    for (const auto& s : layout.getSelections())
+    {
+        auto region = Rectangle<float>();
+
+        for (const auto& patch : layout.getSelectionRegion (s))
+        {
+            region = region.getUnion (patch);
+        }
+        g.fillRect (region.transformedBy (transform).withLeft (0).withWidth (24));
+    }
+}
+
+
+
+
+//==========================================================================
 mcl::HighlightComponent::HighlightComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
@@ -92,7 +136,6 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
         {
             g.fillRect (patch);
         }
-
     }
 }
 
@@ -573,7 +616,10 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
 
 
 //==============================================================================
-mcl::TextEditor::TextEditor() : highlight (layout), caret (layout)
+mcl::TextEditor::TextEditor()
+: caret (layout)
+, gutter (layout)
+, highlight (layout)
 {
     callback = [this] (TextAction::Report report)
     {
@@ -590,9 +636,10 @@ mcl::TextEditor::TextEditor() : highlight (layout), caret (layout)
 
     layout.setSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
-    translateView (10, 0);
+    translateView (24, 0);
     setWantsKeyboardFocus (true);
 
+    addAndMakeVisible (gutter);
     addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
 }
@@ -606,7 +653,8 @@ void mcl::TextEditor::setText (const String& text)
 void mcl::TextEditor::translateView (float dx, float dy)
 {
     translation.x += dx;
-    translation.y = jlimit (jmin (-0.f, -layout.getHeight() + getHeight()), 0.f, translation.y + dy);
+    translation.y = jlimit (jmin (-0.f, -layout.getHeight() * viewScaleFactor + getHeight()),
+                            0.f, translation.y + dy);
     updateViewTransform();
 }
 
@@ -618,9 +666,11 @@ void mcl::TextEditor::scaleView (float scaleFactor)
 
 void mcl::TextEditor::updateViewTransform()
 {
-    transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
+    // transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
+    transform = AffineTransform::scale (viewScaleFactor).translated (translation.x, translation.y);
     highlight.setViewTransform (transform);
     caret.setViewTransform (transform);
+    gutter.setViewTransform (transform);
     repaint();
 }
 
@@ -628,20 +678,27 @@ void mcl::TextEditor::resized()
 {
     highlight.setBounds (getLocalBounds());
     caret.setBounds (getLocalBounds());
+    gutter.setBounds (getLocalBounds());
 }
 
 void mcl::TextEditor::paint (Graphics& g)
 {
     g.fillAll (Colours::white);
-}
 
-void mcl::TextEditor::paintOverChildren (Graphics& g)
-{
     g.setColour (Colours::black);
     layout.findGlyphsIntersecting (g.getClipBounds()
                                    .toFloat()
                                    .transformedBy (transform.inverted())
                                    ).draw (g, transform);
+}
+
+void mcl::TextEditor::paintOverChildren (Graphics& g)
+{
+//    g.setColour (Colours::black);
+//    layout.findGlyphsIntersecting (g.getClipBounds()
+//                                   .toFloat()
+//                                   .transformedBy (transform.inverted())
+//                                   ).draw (g, transform);
 }
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
@@ -737,6 +794,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
         layout.setSelections ({ Selection (r.selection.tail) });
         caret.refreshSelections();
+        gutter.refreshSelections();
         highlight.refreshSelections();
 
         if (! r.affectedArea.isEmpty())

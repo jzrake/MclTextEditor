@@ -21,6 +21,7 @@ namespace mcl {
         Factoring of responsibilities in the text editor classes:
      */
     class CaretComponent;     // draws the caret symbol(s)
+    class GutterComponent;    // draws the gutter
     class HighlightComponent; // draws the highlight region(s)
     class TextAction;         // visits a layout, operates on text and caret ranges, is undoable
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
@@ -123,6 +124,26 @@ private:
     void timerCallback() override;
     //==========================================================================
     float phase = 0.f;
+    const TextLayout& layout;
+    juce::AffineTransform transform;
+};
+
+
+
+
+//==============================================================================
+class mcl::GutterComponent : public juce::Component
+{
+public:
+    GutterComponent (const TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transformToUse);
+    void refreshSelections();
+
+    //==========================================================================
+    void paint (juce::Graphics& g) override;
+
+private:
+    //==========================================================================
     const TextLayout& layout;
     juce::AffineTransform transform;
 };
@@ -328,8 +349,9 @@ private:
 
     bool tabKeyUsed = true;
     TextLayout layout;
-    HighlightComponent highlight;
     CaretComponent caret;
+    GutterComponent gutter;
+    HighlightComponent highlight;
     std::function<void(TextAction::Report)> callback;
     float viewScaleFactor = 1.f;
     juce::Point<float> translation;
