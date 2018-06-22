@@ -244,6 +244,9 @@ public:
     enum class Navigation
     {
         identity,
+        wholeDocument,
+        wholeLine,
+        wholeWord,
         forwardByChar, backwardByChar,
         forwardByWord, backwardByWord,
         forwardByLine, backwardByLine,
@@ -281,8 +284,12 @@ public:
         metric for the vertical position. */
     juce::Point<float> getPosition (juce::Point<int> index, Metric metric) const;
 
-    /** Return an array of rectangles covering the given selection. */
-    juce::Array<juce::Rectangle<float>> getSelectionRegion (Selection selection) const;
+    /** Return an array of rectangles covering the given selection. If
+        the clip rectangle is empty, the whole selection is returned.
+        Otherwise it gets only the overlapping parts.
+     */
+    juce::Array<juce::Rectangle<float>> getSelectionRegion (Selection selection,
+                                                            juce::Rectangle<float> clip={}) const;
 
     /** Return the bounds of the entire layout. */
     juce::Rectangle<float> getBounds() const;
@@ -314,6 +321,8 @@ public:
 
     /** Find the row and column index nearest to the given position. */
     juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
+
+    juce::Point<int> getLast() const;
 
     /** Advance the given index by a single character, moving to the next
         line if at the end. Return false if the index cannot be advanced
@@ -369,6 +378,7 @@ class mcl::TextEditor : public juce::Component
 {
 public:
     TextEditor();
+    void setFont (juce::Font font);
     void setText (const juce::String& text);
     void translateView (float dx, float dy);
     void scaleView (float scaleFactor);

@@ -17,6 +17,7 @@ using namespace juce;
 
 #define GUTTER_WIDTH 48.f
 #define CURSOR_WIDTH 3.f
+#define TEST_MULTI_CARET_EDITING 0
 
 
 
@@ -25,7 +26,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    // startTimerHz (40);
+    startTimerHz (20);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -64,7 +65,7 @@ float mcl::CaretComponent::squareWave (float wt) const
 
 void mcl::CaretComponent::timerCallback()
 {
-    phase += 1.6e-1;
+    phase += 3.2e-1;
     repaint();
 }
 
@@ -207,11 +208,12 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
     }
     else
     {
+        auto clip = g.getClipBounds().toFloat();
         g.setColour (Colours::black.withAlpha (0.2f));
 
         for (const auto& s : layout.getSelections())
         {
-            for (const auto& patch : layout.getSelectionRegion (s))
+            for (const auto& patch : layout.getSelectionRegion (s, clip))
             {
                 g.fillRect (patch);
             }
@@ -485,41 +487,36 @@ Point<float> mcl::TextLayout::getPosition (Point<int> index, Metric metric) cons
     return Point<float> (getGlyphBounds (index).getX(), getVerticalPosition (index.x, metric));
 }
 
-Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection) const
+Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection, Rectangle<float> clip) const
 {
     Array<Rectangle<float>> patches;
+    Selection s = selection.oriented();
 
-    if (selection.head.x == selection.tail.x)
+    if (s.head.x == s.tail.x)
     {
-        int c0 = jmin (selection.head.y, selection.tail.y);
-        int c1 = jmax (selection.head.y, selection.tail.y);
-        patches.add (getBoundsOnRow (selection.head.x, Range<int> (c0, c1)));
+        int c0 = s.head.y;
+        int c1 = s.tail.y;
+        patches.add (getBoundsOnRow (s.head.x, Range<int> (c0, c1)));
     }
     else
     {
-        int r0, c0, r1, c1;
+        int r0 = s.head.x;
+        int c0 = s.head.y;
+        int r1 = s.tail.x;
+        int c1 = s.tail.y;
 
-        if (selection.head.x > selection.tail.x) // for a forward selection
+        for (int n = r0; n <= r1; ++n)
         {
-            r0 = selection.tail.x;
-            c0 = selection.tail.y;
-            r1 = selection.head.x;
-            c1 = selection.head.y;
-        }
-        else // for a backward selection
-        {
-            r0 = selection.head.x;
-            c0 = selection.head.y;
-            r1 = selection.tail.x;
-            c1 = selection.tail.y;
-        }
+            if (! clip.isEmpty() &&
+                ! clip.getVerticalRange().intersects (
+            {
+                getVerticalPosition (n, Metric::top),
+                getVerticalPosition (n, Metric::bottom)
+            })) continue;
 
-        patches.add (getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1)));
-        patches.add (getBoundsOnRow (r1, Range<int> (0, c1)));
-
-        for (int n = r0 + 1; n < r1; ++n)
-        {
-            patches.add (getBoundsOnRow (n, Range<int> (0, getNumColumns (n) + 1)));
+            if      (n == r0) patches.add (getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1)));
+            else if (n == r1) patches.add (getBoundsOnRow (r1, Range<int> (0, c1)));
+            else              patches.add (getBoundsOnRow (n,  Range<int> (0, getNumColumns (n) + 1)));
         }
     }
     return patches;
@@ -642,6 +639,11 @@ Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) con
     return Point<int> (row, col);
 }
 
+Point<int> mcl::TextLayout::getLast() const
+{
+    return Point<int> (getNumRows() - 1, getNumColumns (getNumRows() - 1));
+}
+
 bool mcl::TextLayout::next (juce::Point<int>& index) const
 {
     if (index.y < getNumColumns (index.x))
@@ -747,6 +749,9 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, boo
     switch (navigation)
     {
         case Navigation::identity: return S;
+        case Navigation::wholeDocument : for (auto& s : S) { s.head = { 0, 0 }; s.tail = getLast(); } return shrunken (S);
+        case Navigation::wholeLine     : for (auto& s : S) { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return shrunken (S);
+        case Navigation::wholeWord     : for (auto& s : S) { prevWord (s.head); nextWord (s.tail); } return shrunken (S);
         case Navigation::forwardByChar : for (auto& s : S) next (s.head); return shrunken (S);
         case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return shrunken (S);
         case Navigation::forwardByWord : for (auto& s : S) nextWord (s.head); return shrunken (S);
@@ -755,7 +760,6 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, boo
         case Navigation::backwardByLine: for (auto& s : S) prevRow (s.head); return shrunken (S);
         case Navigation::toLineStart   : for (auto& s : S) s.head.y = 0; return shrunken (S);
         case Navigation::toLineEnd     : for (auto& s : S) s.head.y = getNumColumns (s.head.x); return shrunken (S);
-        default: return S;
     }
 }
 
@@ -920,8 +924,8 @@ mcl::TextEditor::TextEditor()
     lastTransactionTime = Time::getApproximateMillisecondCounter();
 
     layout.setSelections ({ Selection() });
-    layout.setFont (Font ("Monaco", 16, 0));
-    gutter.cacheLineNumberGlyphs();
+
+    setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
 
     translateView (GUTTER_WIDTH, 0);
     setWantsKeyboardFocus (true);
@@ -929,6 +933,13 @@ mcl::TextEditor::TextEditor()
     addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
     addAndMakeVisible (gutter);
+}
+
+void mcl::TextEditor::setFont (juce::Font font)
+{
+    layout.setFont (font);
+    gutter.cacheLineNumberGlyphs();
+    repaint();
 }
 
 void mcl::TextEditor::setText (const String& text)
@@ -1011,6 +1022,9 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
+    if (e.getNumberOfClicks() > 1)
+        return;
+
     auto selections = layout.getSelections();
     auto index = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
 
@@ -1018,7 +1032,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     {
         return;
     }
-    if (! e.mods.isCommandDown())
+    if (! e.mods.isCommandDown() || ! TEST_MULTI_CARET_EDITING)
     {
         selections.clear();
     }
@@ -1041,6 +1055,11 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 
 void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
+    if (e.getNumberOfClicks() == 2)
+        layout.setSelections (layout.getSelections (TextLayout::Navigation::wholeWord, true).getFirst());
+    else if (e.getNumberOfClicks() == 3)
+        layout.setSelections (layout.getSelections (TextLayout::Navigation::wholeLine, true).getFirst());
+    updateSelections();
 }
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
@@ -1101,6 +1120,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
     if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return nav (Navigation::toLineStart);
     if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return nav (Navigation::toLineEnd);
+    if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Navigation::wholeDocument);
+    if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Navigation::wholeLine);
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
@@ -1132,6 +1153,17 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     };
 
     bool isTab = tabKeyUsed && (key.getTextCharacter() == '\t');
+
+    if (key == KeyPress ('x', ModifierKeys::commandModifier, 0))
+    {
+        SystemClipboard::copyTextToClipboard (layout.getSelectionContent (layout.getSelections().getFirst()));
+        return insert ("");
+    }
+    if (key == KeyPress ('c', ModifierKeys::commandModifier, 0))
+    {
+        SystemClipboard::copyTextToClipboard (layout.getSelectionContent (layout.getSelections().getFirst()));
+        return true;
+    }
 
     if (key == KeyPress ('v', ModifierKeys::commandModifier, 0))   return insert (SystemClipboard::getTextFromClipboard());
     if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0))      return insert (String::charToString (KeyPress::deleteKey));
