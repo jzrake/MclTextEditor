@@ -23,10 +23,11 @@ namespace mcl {
     class CaretComponent;     // draws the caret symbol(s)
     class GutterComponent;    // draws the gutter
     class HighlightComponent; // draws the highlight region(s)
+    class RectanglePatchList; // encapuslates traversal of a highlight boundary
+    class Selection;          // stores leading and trailing edges of an editing region
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;         // is a component, issues actions, computes view transform
     class Transaction;        // a text replacement, the layout computes the inverse on fulfilling it
-    class Selection;          // stores leading and trailing edges of an editing region
 }
 
 
@@ -184,8 +185,35 @@ public:
 
 private:
     //==========================================================================
+    bool useRoundedHighlight = true;
     const TextLayout& layout;
     juce::AffineTransform transform;
+    juce::Path selectionBoundary;
+};
+
+
+
+
+//==============================================================================
+class mcl::RectanglePatchList
+{
+public:
+    RectanglePatchList (const juce::Array<juce::Rectangle<float>>& rectangles);
+    bool checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const;
+    bool isBinOccupied (int binIndexI, int binIndexJ) const;
+    juce::Array<bool> getOccupationMatrix() const;
+    juce::Rectangle<float> getGridPatch (int binIndexI, int binIndexJ) const;
+    juce::Array<juce::Line<float>> getListOfBoundaryLines() const;
+    juce::Path getOutlinePath (float cornerSize=3.f) const;
+    
+private:
+    static juce::Array<float> uniqueValuesOfSortedArray (const juce::Array<float>& X);
+    static juce::Array<float> getUniqueCoordinatesX (const juce::Array<juce::Rectangle<float>>& rectangles);
+    static juce::Array<float> getUniqueCoordinatesY (const juce::Array<juce::Rectangle<float>>& rectangles);
+    
+    juce::Array<juce::Rectangle<float>> rectangles;
+    juce::Array<float> xedges;
+    juce::Array<float> yedges;
 };
 
 

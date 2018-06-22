@@ -142,7 +142,10 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
         }
         g.setColour (Colours::grey);
 
-        lineNumberGlyphsCache.getReference (r.rowNumber).draw (g, verticalTransform);
+        if (r.rowNumber < lineNumberGlyphsCache.size())
+        {
+            lineNumberGlyphsCache.getReference (r.rowNumber).draw (g, verticalTransform);
+        }
     }
 
     // DBG("C: " << Time::getMillisecondCounterHiRes() - start);
@@ -150,6 +153,10 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
 
 void mcl::GutterComponent::cacheLineNumberGlyphs()
 {
+    /*
+     Larger cache sizes than ~1000 slows component loading. This needs a
+     smarter implementation, like momoizing the 100 most recent calls.
+     */
     for (int n = 0; n < 1000; ++n)
     {
         GlyphArrangement glyphs;
@@ -177,22 +184,39 @@ void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& tra
 
 void mcl::HighlightComponent::updateSelections()
 {
+    if (useRoundedHighlight)
+    {
+        auto region = layout.getSelectionRegion (layout.getSelections().getFirst());
+        selectionBoundary = RectanglePatchList (region).getOutlinePath (3.f);
+    }
     repaint();
 }
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
-    g.setColour (Colours::grey);
-    g.drawText (layout.getSelections().getFirst().toString(), getLocalBounds().toFloat(), Justification::bottomRight);
+    // g.setColour (Colours::grey);
+    // g.drawText (layout.getSelections().getFirst().toString(), getLocalBounds().toFloat(), Justification::bottomRight);
 
     g.addTransform (transform);
-    g.setColour (Colours::black.withAlpha (0.2f));
 
-    for (const auto& s : layout.getSelections())
+    if (useRoundedHighlight)
     {
-        for (const auto& patch : layout.getSelectionRegion (s))
+        g.setColour (Colours::black.withAlpha (0.2f));
+        g.fillPath (selectionBoundary);
+        
+        g.setColour (Colours::black.withAlpha (0.25f));
+        g.strokePath (selectionBoundary, PathStrokeType (1.f));
+    }
+    else
+    {
+        g.setColour (Colours::black.withAlpha (0.2f));
+
+        for (const auto& s : layout.getSelections())
         {
-            g.fillRect (patch);
+            for (const auto& patch : layout.getSelectionRegion (s))
+            {
+                g.fillRect (patch);
+            }
         }
     }
 }
@@ -231,6 +255,192 @@ mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) 
         s.tail.y = 0;
     }
     return s;
+}
+
+
+
+
+//==============================================================================
+mcl::RectanglePatchList::RectanglePatchList (const Array<Rectangle<float>>& rectangles)
+: rectangles (rectangles)
+{
+    xedges = getUniqueCoordinatesX (rectangles);
+    yedges = getUniqueCoordinatesY (rectangles);
+}
+
+bool mcl::RectanglePatchList::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
+{
+    return rectangles.getReference (rectangleIndex).intersects (getGridPatch (binIndexI, binIndexJ));
+}
+
+bool mcl::RectanglePatchList::isBinOccupied (int binIndexI, int binIndexJ) const
+{
+    for (int n = 0; n < rectangles.size(); ++n)
+    {
+        if (checkIfRectangleFallsInBin (n, binIndexI, binIndexJ))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Rectangle<float> mcl::RectanglePatchList::getGridPatch (int binIndexI, int binIndexJ) const
+{
+    auto gridPatch = Rectangle<float>();
+    gridPatch.setHorizontalRange (Range<float> (xedges.getUnchecked (binIndexI), xedges.getUnchecked (binIndexI + 1)));
+    gridPatch.setVerticalRange   (Range<float> (yedges.getUnchecked (binIndexJ), yedges.getUnchecked (binIndexJ + 1)));
+    return gridPatch;
+}
+
+Array<juce::Line<float>> mcl::RectanglePatchList::getListOfBoundaryLines() const
+{
+    auto matrix = getOccupationMatrix();
+    auto ni = xedges.size() - 1;
+    auto nj = yedges.size() - 1;
+    auto lines = Array<Line<float>>();
+
+    for (int i = 0; i < ni; ++i)
+    {
+        for (int j = 0; j < nj; ++j)
+        {
+            if (matrix.getUnchecked (nj * i + j))
+            {
+                bool L = i == 0      || ! matrix.getUnchecked (nj * (i - 1) + j);
+                bool R = i == ni - 1 || ! matrix.getUnchecked (nj * (i + 1) + j);
+                bool T = j == 0      || ! matrix.getUnchecked (nj * i + (j - 1));
+                bool B = j == nj - 1 || ! matrix.getUnchecked (nj * i + (j + 1));
+
+                if (L)
+                {
+                    auto p0 = Point<float> (xedges.getUnchecked (i), yedges.getUnchecked (j + 0));
+                    auto p1 = Point<float> (xedges.getUnchecked (i), yedges.getUnchecked (j + 1));
+                    lines.add (Line<float> (p0, p1));
+                }
+                if (R)
+                {
+                    auto p0 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 0));
+                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                    lines.add (Line<float> (p0, p1));
+                }
+                if (T)
+                {
+                    auto p0 = Point<float> (xedges.getUnchecked (i + 0), yedges.getUnchecked (j));
+                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j));
+                    lines.add (Line<float> (p0, p1));
+                }
+                if (B)
+                {
+                    auto p0 = Point<float> (xedges.getUnchecked (i + 0), yedges.getUnchecked (j + 1));
+                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
+                    lines.add (Line<float> (p0, p1));
+                }
+            }
+        }
+    }
+    return lines;
+}
+
+Path mcl::RectanglePatchList::getOutlinePath (float cornerSize) const
+{
+    auto p = Path();
+    auto lines = getListOfBoundaryLines();
+
+    if (lines.isEmpty())
+    {
+        return p;
+    }
+
+    auto findOtherLineWithEndpoint = [&lines] (Line<float> ab)
+    {
+        for (const auto& line : lines)
+        {
+            if (! (line == ab || line == ab.reversed()))
+            {
+                // If the line starts on b, then return it.
+                if (line.getStart() == ab.getEnd())
+                {
+                    return line;
+                }
+                // If the line ends on b, then reverse and return it.
+                if (line.getEnd() == ab.getEnd())
+                {
+                    return line.reversed();
+                }
+            }
+        }
+        return Line<float>();
+    };
+
+    auto currentLine = lines.getFirst();
+    p.startNewSubPath (currentLine.withShortenedStart (cornerSize).getStart());
+
+    do {
+        auto nextLine = findOtherLineWithEndpoint (currentLine);
+
+        p.lineTo (currentLine.withShortenedEnd (cornerSize).getEnd());
+        p.quadraticTo (nextLine.getStart(), nextLine.withShortenedStart (cornerSize).getStart());
+
+        currentLine = nextLine;
+    } while (currentLine != lines.getFirst());
+
+    p.closeSubPath();
+
+    return p;
+}
+
+juce::Array<bool> mcl::RectanglePatchList::getOccupationMatrix() const
+{
+    auto matrix = Array<bool>();
+    auto ni = xedges.size() - 1;
+    auto nj = yedges.size() - 1;
+
+    matrix.resize (ni * nj);
+
+    for (int i = 0; i < ni; ++i)
+    {
+        for (int j = 0; j < nj; ++j)
+        {
+            matrix.setUnchecked (nj * i + j, isBinOccupied (i, j));
+        }
+    }
+    return matrix;
+}
+
+Array<float> mcl::RectanglePatchList::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
+{
+    Array<float> X;
+
+    for (const auto& rect : rectangles)
+    {
+        X.addUsingDefaultSort (rect.getX());
+        X.addUsingDefaultSort (rect.getRight());
+    }
+    return uniqueValuesOfSortedArray (X);
+}
+
+Array<float> mcl::RectanglePatchList::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
+{
+    Array<float> Y;
+
+    for (const auto& rect : rectangles)
+    {
+        Y.addUsingDefaultSort (rect.getY());
+        Y.addUsingDefaultSort (rect.getBottom());
+    }
+    return uniqueValuesOfSortedArray (Y);
+}
+
+Array<float> mcl::RectanglePatchList::uniqueValuesOfSortedArray (const Array<float>& X)
+{
+    jassert (! X.isEmpty());
+    Array<float> unique { X.getFirst() };
+
+    for (const auto& x : X)
+        if (x != unique.getLast())
+            unique.add (x);
+
+    return unique;
 }
 
 
