@@ -691,6 +691,42 @@ bool mcl::TextLayout::prevRow (juce::Point<int>& index) const
     return false;
 }
 
+bool mcl::TextLayout::nextWord (juce::Point<int>& index) const
+{
+    if (CharacterFunctions::isWhitespace (getCharacter (index)))
+        while (next (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
+
+    while (next (index))
+        if (CharacterFunctions::isWhitespace (getCharacter (index)))
+            return true;
+
+    return false;
+}
+
+bool mcl::TextLayout::prevWord (juce::Point<int>& index) const
+{
+    prev (index);
+
+    if (CharacterFunctions::isWhitespace (getCharacter (index)))
+        while (prev (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
+
+    while (prev (index))
+        if (CharacterFunctions::isWhitespace (getCharacter (index)))
+        {
+            next (index);
+            return true;
+        }
+
+    return false;
+}
+
+juce::juce_wchar mcl::TextLayout::getCharacter (juce::Point<int> index) const
+{
+    jassert (0 <= index.x && index.x < lines.size());
+    jassert (0 <= index.y && index.y <= lines[index.x].length());
+    return index.y == lines[index.x].length() ? '\n' : lines[index.x].getCharPointer()[index.y];
+}
+
 Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, bool fixingTail) const
 {
     auto S = selections;
@@ -708,6 +744,8 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, boo
         case Navigation::identity: return S;
         case Navigation::forwardByChar : for (auto& s : S) next (s.head); return shrunken (S);
         case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return shrunken (S);
+        case Navigation::forwardByWord : for (auto& s : S) nextWord (s.head); return shrunken (S);
+        case Navigation::backwardByWord: for (auto& s : S) prevWord (s.head); return shrunken (S);
         case Navigation::forwardByLine : for (auto& s : S) nextRow (s.head); return shrunken (S);
         case Navigation::backwardByLine: for (auto& s : S) prevRow (s.head); return shrunken (S);
         case Navigation::toLineStart   : for (auto& s : S) s.head.y = 0; return shrunken (S);
@@ -1028,6 +1066,11 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         if (key.isKeyCode (KeyPress::leftKey  )) return expand (Navigation::backwardByChar);
         if (key.isKeyCode (KeyPress::downKey  )) return expand (Navigation::forwardByLine);
         if (key.isKeyCode (KeyPress::upKey    )) return expand (Navigation::backwardByLine);
+    }
+    else if (key.getModifiers().isAltDown())
+    {
+        if (key.isKeyCode (KeyPress::rightKey)) return nav (Navigation::forwardByWord);
+        if (key.isKeyCode (KeyPress::leftKey )) return nav (Navigation::backwardByWord);
     }
     else
     {

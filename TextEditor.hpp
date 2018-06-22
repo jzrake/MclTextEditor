@@ -329,6 +329,15 @@ public:
     /** Move the given index to the previous row if possible. */
     bool prevRow (juce::Point<int>& index) const;
 
+    /** Move the given index to the next word if possible. */
+    bool nextWord (juce::Point<int>& index) const;
+    
+    /** Move the given index to the previous word if possible. */
+    bool prevWord (juce::Point<int>& index) const;
+
+    /** Return the character at the given index. */
+    juce::juce_wchar getCharacter (juce::Point<int> index) const;
+
     /** Return the current selection state, possibly operated on. */
     juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity, bool fixingTail=false) const;
 
