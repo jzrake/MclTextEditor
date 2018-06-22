@@ -185,7 +185,7 @@ public:
 
 private:
     //==========================================================================
-    bool useRoundedHighlight = true;
+    bool useRoundedHighlight = false;
     const TextLayout& layout;
     juce::AffineTransform transform;
     juce::Path selectionBoundary;
@@ -195,6 +195,15 @@ private:
 
 
 //==============================================================================
+/**
+ A class that computes the boundary of a collection of rectanglular patches, and
+ can return it as a path or as a list of lines.
+ 
+ NOTE: getOutlinePath only draws a path around a simply connected region.
+ If the boundary contains disconnected regions, getListOfBoundaryLines will
+ provide the correct list of lines, but the path calculation will stop once
+ it intersects itself.
+ */
 class mcl::RectanglePatchList
 {
 public:

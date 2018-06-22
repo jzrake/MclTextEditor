@@ -77,11 +77,9 @@ mcl::GutterComponent::GutterComponent (const TextLayout& layout) : layout (layou
     setInterceptsMouseClicks (false, false);
 }
 
-void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transformToUse)//,
-//                                             const juce::AffineTransform& verticalTransformOnly)
+void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transformToUse)
 {
     transform = transformToUse;
-    // verticalTransform = verticalTransformOnly;
     repaint();
 }
 
@@ -743,11 +741,28 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 {
     cachedBounds = Rectangle<float>(); // invalidate the bounds
 
-    // 1. Get the content on the affected rows as a single string L.
-    // 2. Compute the linear start index i = s.head.y
-    // 3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
-    // 4. Replace L between i and j with content.
-    // 5. Replace the affected lines of text.
+    /*
+     This is the main algorithm for implementing transactions. The strategy is
+     to pop the text from the affected lines, replace the part of it between
+     the selection head and tail, and then insert the resulting content one
+     line at a time. The head and tail of the target selection, transformed to
+     account for the new content, are returned in the reciprocal transaction
+     to enable undo's. In principle, we can also compute the layout subset
+     that is effected by the change, and return that in
+     Transation::affectedArea, but for now we just pretend the whole layout is
+     invalidated.
+
+     There are nasty corner cases, especially with regard to the placement of
+     the selection tail. They might not all be worked out yet.
+
+     Here is a summary of the steps:
+
+     1. Get the content on the affected rows as a single string L.
+     2. Compute the linear start index i = s.head.y
+     3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
+     4. Replace L between i and j with content.
+     5. Replace the affected lines of text.
+     */
 
     const auto t = transaction.accountingForSpecialCharacters (*this);
     const auto s = t.selection.oriented();
@@ -769,23 +784,11 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
     }
 
     /*
-     Computing the post selection tail column is not elegant...
+     Computing the post selection tail column is not self-explanatory...
+     I'm not gonna explain it here either.
      */
     int lengthOfFinalContentLine = t.content.length() - jmax (0, t.content.lastIndexOf ("\n"));
-    int finalTailColumn;
-
-    if (t.content == "\n")
-    {
-        finalTailColumn = 0;
-    }
-    else if (s.isSingleLine() || t.content.isEmpty())
-    {
-        finalTailColumn = lengthOfFinalContentLine + s.head.y;
-    }
-    else
-    {
-        finalTailColumn = lengthOfFinalContentLine;
-    }
+    int finalTailColumn  = t.content == "\n" ? 0 : lengthOfFinalContentLine + s.head.y;
 
     auto inf = std::numeric_limits<float>::max();
     Transaction r;
