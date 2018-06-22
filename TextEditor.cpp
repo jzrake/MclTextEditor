@@ -25,7 +25,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    startTimerHz (40);
+    // startTimerHz (40);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -54,6 +54,7 @@ void mcl::CaretComponent::paint (Graphics& g)
         g.fillRect (b);
     }
 }
+
 float mcl::CaretComponent::squareWave (float wt) const
 {
     const float delta = 0.222f;
@@ -76,9 +77,11 @@ mcl::GutterComponent::GutterComponent (const TextLayout& layout) : layout (layou
     setInterceptsMouseClicks (false, false);
 }
 
-void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transformToUse)
+void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transformToUse)//,
+//                                             const juce::AffineTransform& verticalTransformOnly)
 {
     transform = transformToUse;
+    // verticalTransform = verticalTransformOnly;
     repaint();
 }
 
@@ -89,6 +92,10 @@ void mcl::GutterComponent::updateSelections()
 
 void mcl::GutterComponent::paint (juce::Graphics& g)
 {
+    double start = Time::getMillisecondCounterHiRes();
+
+    // DBG("A: " << Time::getMillisecondCounterHiRes() - start);
+
     /*
      Draw the gutter background, shadow, and outline
      ------------------------------------------------------------------
@@ -107,50 +114,49 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
     else
     {
         g.setColour (Colours::whitesmoke.darker (0.1f));
-        g.drawVerticalLine (GUTTER_WIDTH - 1., 0.f, getHeight());
+        g.drawVerticalLine (GUTTER_WIDTH - 1.f, 0.f, getHeight());
     }
+
+    // DBG("B: " << Time::getMillisecondCounterHiRes() - start);
+
 
     /*
-     Draw the highlighted regions
+     Draw the line numbers and selected rows
      ------------------------------------------------------------------
      */
-    g.setColour (Colours::whitesmoke.darker (0.1f));
+    auto area = g.getClipBounds().toFloat().transformedBy (transform.inverted());
+    auto rowData = layout.findRowsIntersecting (area);
+    auto verticalTransform = transform.withAbsoluteTranslation (0.f, transform.getTranslationY());
 
-    for (const auto& s : layout.getSelections()) // caret rows only
+    for (const auto& r : rowData)
     {
-        auto patch = layout.getBoundsOnRow (s.head.x, juce::Range<int> (0, 1));
-        g.fillRect (patch.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
-    }
-
-    for (const auto& s : layout.getSelections()) // highlighted regions
-    {
-        auto region = Rectangle<float>();
-
-        for (const auto& patch : layout.getSelectionRegion (s))
-        {
-            region = region.getUnion (patch);
-        }
-        g.fillRect (region.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
-    }
-
-    /*
-     Draw the line numbers
-     ------------------------------------------------------------------
-     */
-    auto area = g.getClipBounds()
-        .toFloat()
-        .transformedBy (transform.inverted());
-
-    g.setFont (Font ("Monaco", 12, 0));
-    g.setColour (Colours::grey);
-
-    for (const auto& r : layout.findRowsIntersecting (area))
-    {
-        auto area = r.bounds
+        auto A = r.bounds
             .transformedBy (transform)
-            .withLeft (8)
+            .withX (0)
             .withWidth (GUTTER_WIDTH);
-        g.drawText (String (r.rowNumber), area, Justification::left);
+
+        if (r.isRowSelected)
+        {
+            g.setColour (Colours::whitesmoke.darker (0.1f));
+            g.fillRect (A);
+        }
+        g.setColour (Colours::grey);
+
+        lineNumberGlyphsCache.getReference (r.rowNumber).draw (g, verticalTransform);
+    }
+
+    // DBG("C: " << Time::getMillisecondCounterHiRes() - start);
+}
+
+void mcl::GutterComponent::cacheLineNumberGlyphs()
+{
+    for (int n = 0; n < 1000; ++n)
+    {
+        GlyphArrangement glyphs;
+        glyphs.addLineOfText (layout.getFont().withHeight (12.f),
+                              String (n),
+                              8.f, layout.getVerticalPosition (n, TextLayout::Metric::baseline));
+        lineNumberGlyphsCache.add (glyphs);
     }
 }
 
@@ -386,6 +392,15 @@ juce::Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (juc
             data.bounds.setY      (getVerticalPosition(n, Metric::top));
             data.bounds.setBottom (getVerticalPosition(n, Metric::bottom));
         }
+
+        for (const auto& s : selections)
+        {
+            if (s.intersectsRow (n))
+            {
+                data.isRowSelected = true;
+                break;
+            }
+        }
         rows.add (data);
     }
     return rows;
@@ -573,15 +588,32 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 
 
 
-//    t.content == "\n" ? 0 : lengthOfFinalContentLine + (s.isSingleLine() || t.content.isEmpty() ? s.head.y : 0));
-//    DBG("removing " << s.tail.x - s.head.x + 1);
-//    DBG("adding " << StringArray::fromLines (M).size());
-//    DBG("i = " << i);
-//    DBG("j = " << j);
-//    DBG("L = " << L.replace ("\n", "NEWLINE"));
-//    DBG("M = " << M.replace ("\n", "NEWLINE"));
-//    DBG("lengthOfFinalContentLine = " << lengthOfFinalContentLine);
-//    DBG("new tail = " << r.selection.tail.y);
+//==============================================================================
+class mcl::Transaction::Undoable : public juce::UndoableAction
+{
+public:
+    Undoable (TextLayout& layout, Callback callback, Transaction forward)
+    : layout (layout)
+    , callback (callback)
+    , forward (forward) {}
+
+    bool perform() override
+    {
+        callback (reverse = layout.fulfill (forward));
+        return true;
+    }
+
+    bool undo() override
+    {
+        callback (forward = layout.fulfill (reverse));
+        return true;
+    }
+
+    TextLayout& layout;
+    Callback callback;
+    Transaction forward;
+    Transaction reverse;
+};
 
 
 
@@ -615,6 +647,11 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
     return t;
 }
 
+juce::UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callback)
+{
+    return new Undoable (layout, callback, *this);
+}
+
 
 
 
@@ -626,6 +663,8 @@ mcl::TextEditor::TextEditor()
 {
     layout.setSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
+    gutter.cacheLineNumberGlyphs();
+
     translateView (GUTTER_WIDTH, 0);
     setWantsKeyboardFocus (true);
 
@@ -784,43 +823,34 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
-
     auto insert = [this] (String insertion)
     {
         Transaction t;
         t.content = insertion;
         t.selection = layout.getSelections().getFirst();
 
-        auto r = layout.fulfill (t);
-
-        layout.setSelections ({ Selection (r.selection.tail) });
-        caret.updateSelections();
-        gutter.updateSelections();
-        highlight.updateSelections();
-
-        if (! r.affectedArea.isEmpty())
+        auto callback = [this] (const Transaction& r)
         {
-            repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
-        }
-        return true;
+            layout.setSelections ({ Selection (r.selection.tail) });
+            updateSelections();
+
+            if (! r.affectedArea.isEmpty())
+            {
+                repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
+            }
+        };
+
+        undo.beginNewTransaction();
+        return undo.perform (t.on (layout, callback));
     };
 
-    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0))
-    {
-        return insert (SystemClipboard::getTextFromClipboard());
-    }
-    if (key.isKeyCode (KeyPress::returnKey))
-    {
-        return insert ("\n");
-    }
-    if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0))
-    {
-        return insert (String::charToString (KeyPress::deleteKey));
-    }
-    if (key.getTextCharacter() >= ' ' || (tabKeyUsed && (key.getTextCharacter() == '\t')))
-    {
-        return insert (String::charToString (key.getTextCharacter()));
-    }
+    bool isTab = tabKeyUsed && (key.getTextCharacter() == '\t');
+
+    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0))   return insert (SystemClipboard::getTextFromClipboard());
+    if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0))      return insert (String::charToString (KeyPress::deleteKey));
+    if (key.isKeyCode (KeyPress::returnKey))                       return insert ("\n");
+    if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
+
     return false;
 }
 
@@ -828,3 +858,4 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 {
     return getMouseXYRelative().x < GUTTER_WIDTH ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
 }
+

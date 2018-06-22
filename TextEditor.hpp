@@ -70,6 +70,14 @@ struct mcl::Selection
     /** Whether or not this selection is only a single line. */
     bool isSingleLine() const { return head.x == tail.x; }
 
+    /** Whether the given row is within the selection. */
+    bool intersectsRow (int row) const
+    {
+        return isOriented()
+            ? head.x <= row && row <= tail.x
+            : head.x >= row && row >= tail.x;
+    }
+
     /** Whether the head precedes the tail. */
     bool isOriented() const;
 
@@ -92,15 +100,26 @@ struct mcl::Selection
 //==============================================================================
 struct mcl::Transaction
 {
+    using Callback = std::function<void(const Transaction&)>;
+
     /** Return a copy of this transaction, corrected for delete and backspace
         characters. For example, if content == "\b" then the selection head is
         decremented and the content is erased.
      */
     Transaction accountingForSpecialCharacters (const TextLayout& layout) const;
 
+    /** Return an undoable action, whose perform method thill fulfill this
+        transaction, and which caches the reciprocal transaction to be
+        issued in the undo method.
+     */
+    juce::UndoableAction* on (TextLayout& layout, Callback callback);
+
     mcl::Selection selection;
     juce::String content;
     juce::Rectangle<float> affectedArea;
+
+private:
+    class Undoable;
 };
 
 
@@ -137,6 +156,7 @@ public:
     GutterComponent (const TextLayout& layout);
     void setViewTransform (const juce::AffineTransform& transformToUse);
     void updateSelections();
+    void cacheLineNumberGlyphs();
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
@@ -145,6 +165,7 @@ private:
     //==========================================================================
     const TextLayout& layout;
     juce::AffineTransform transform;
+    juce::Array<juce::GlyphArrangement> lineNumberGlyphsCache;
 };
 
 
@@ -194,9 +215,12 @@ public:
 
     struct RowData
     {
-        int rowNumber;
+        int rowNumber = 0;
+        bool isRowSelected = false;
         juce::Rectangle<float> bounds;
     };
+
+    juce::Font getFont() const { return font; }
 
     void setFont (juce::Font fontToUse) { font = fontToUse; }
 
