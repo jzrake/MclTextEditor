@@ -34,7 +34,7 @@ void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUs
     repaint();
 }
 
-void mcl::CaretComponent::refreshSelections()
+void mcl::CaretComponent::updateSelections()
 {
     phase = 0.f;
     repaint();
@@ -82,7 +82,7 @@ void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transf
     repaint();
 }
 
-void mcl::GutterComponent::refreshSelections()
+void mcl::GutterComponent::updateSelections()
 {
     repaint();
 }
@@ -169,7 +169,7 @@ void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& tra
     repaint();
 }
 
-void mcl::HighlightComponent::refreshSelections()
+void mcl::HighlightComponent::updateSelections()
 {
     repaint();
 }
@@ -189,88 +189,6 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
             g.fillRect (patch);
         }
     }
-}
-
-
-
-
-//==============================================================================
-class mcl::TextAction::Undoable : public juce::UndoableAction
-{
-public:
-    Undoable (TextAction operation, TextLayout& layout) : operation (operation), layout (layout)
-    {
-    }
-    bool perform() override
-    {
-        return operation.perform (layout);
-    }
-    bool undo() override
-    {
-        return operation.inverted().perform (layout);
-    }
-private:
-    TextAction operation;
-    TextLayout& layout;
-};
-
-
-
-
-//==============================================================================
-mcl::TextAction::TextAction()
-{
-}
-
-mcl::TextAction::TextAction (Callback callback, juce::Array<Selection> targetSelection)
-: callback (callback)
-, navigationFwd (targetSelection)
-{
-}
-
-mcl::TextAction::TextAction (Callback callback, const juce::StringArray& contentToInsert)
-: callback (callback)
-, replacementFwd (contentToInsert)
-{
-}
-
-bool mcl::TextAction::perform (TextLayout& layout)
-{
-    navigationRev = layout.getSelections();
-    Report report;
-
-    if (! navigationFwd.isEmpty() && navigationFwd != navigationRev)
-    {
-        layout.setSelections (navigationFwd);
-        report.navigationOcurred = true;
-    }
-    else if (! replacementFwd.isEmpty())
-    {
-//        replacementRev = layout.replaceSelectedText (replacementFwd);
-//        report.textAreaAffected = layout.getBounds();
-//        report.navigationOcurred = true;
-    }
-
-    if (callback)
-        callback (report);
-
-    return true;
-}
-
-mcl::TextAction mcl::TextAction::inverted()
-{
-    TextAction op;
-    op.callback       = callback;
-    op.replacementFwd = replacementRev;
-    op.replacementRev = replacementFwd;
-    op.navigationFwd  = navigationRev;
-    op.navigationRev  = navigationFwd;
-    return op;
-}
-
-UndoableAction* mcl::TextAction::on (TextLayout& layout) const
-{
-    return new Undoable (*this, layout);
 }
 
 
@@ -706,19 +624,6 @@ mcl::TextEditor::TextEditor()
 , gutter (layout)
 , highlight (layout)
 {
-    callback = [this] (TextAction::Report report)
-    {
-        if (report.navigationOcurred)
-        {
-            highlight.refreshSelections();
-            caret.refreshSelections();
-        }
-        if (! report.textAreaAffected.isEmpty())
-        {
-            repaint (report.textAreaAffected.transformedBy (transform).getSmallestIntegerContainer());
-        }
-    };
-
     layout.setSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
     translateView (GUTTER_WIDTH, 0);
@@ -761,6 +666,13 @@ void mcl::TextEditor::updateViewTransform()
     repaint();
 }
 
+void mcl::TextEditor::updateSelections()
+{
+    highlight.updateSelections();
+    caret.updateSelections();
+    gutter.updateSelections();
+}
+
 void mcl::TextEditor::resized()
 {
     highlight.setBounds (getLocalBounds());
@@ -796,10 +708,10 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     {
         selections.clear();
     }
-    selections.add (index);
 
-    undo.beginNewTransaction();
-    undo.perform (TextAction (callback, selections).on (layout));
+    selections.add (index);
+    layout.setSelections (selections);
+    updateSelections();
 }
 
 void mcl::TextEditor::mouseDrag (const MouseEvent& e)
@@ -808,8 +720,8 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
     {
         auto selection = layout.getSelections().getFirst();
         selection.head = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
-        undo.beginNewTransaction();
-        undo.perform (TextAction (callback, { selection }).on (layout));
+        layout.setSelections ({ selection });
+        updateSelections();
     }
 }
 
@@ -839,37 +751,36 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
     using Navigation = TextLayout::Navigation;
 
-    auto makeUndoableNav = [this] (TextLayout::Navigation navigation)
+    auto nav = [this] (TextLayout::Navigation navigation)
     {
-        auto action = TextAction (callback, layout.getSelections (navigation));
-        undo.beginNewTransaction();
-        return undo.perform (action.on (layout));
+        layout.setSelections (layout.getSelections (navigation));
+        updateSelections();
+        return true;
     };
-
-    auto makeUndoableExpandSelection = [this] (TextLayout::Navigation navigation)
+    auto expand = [this] (TextLayout::Navigation navigation)
     {
-        auto action = TextAction (callback, layout.getSelections (navigation, true));
-        undo.beginNewTransaction();
-        return undo.perform (action.on (layout));
+        layout.setSelections (layout.getSelections (navigation, true));
+        updateSelections();
+        return true;
     };
 
     if (key.getModifiers().isShiftDown())
     {
-        if (key.isKeyCode (KeyPress::rightKey )) return makeUndoableExpandSelection (Navigation::forwardByChar);
-        if (key.isKeyCode (KeyPress::leftKey  )) return makeUndoableExpandSelection (Navigation::backwardByChar);
-        if (key.isKeyCode (KeyPress::downKey  )) return makeUndoableExpandSelection (Navigation::forwardByLine);
-        if (key.isKeyCode (KeyPress::upKey    )) return makeUndoableExpandSelection (Navigation::backwardByLine);
+        if (key.isKeyCode (KeyPress::rightKey )) return expand (Navigation::forwardByChar);
+        if (key.isKeyCode (KeyPress::leftKey  )) return expand (Navigation::backwardByChar);
+        if (key.isKeyCode (KeyPress::downKey  )) return expand (Navigation::forwardByLine);
+        if (key.isKeyCode (KeyPress::upKey    )) return expand (Navigation::backwardByLine);
     }
     else
     {
-        if (key.isKeyCode (KeyPress::rightKey    )) return makeUndoableNav (Navigation::forwardByChar);
-        if (key.isKeyCode (KeyPress::leftKey     )) return makeUndoableNav (Navigation::backwardByChar);
-        if (key.isKeyCode (KeyPress::downKey     )) return makeUndoableNav (Navigation::forwardByLine);
-        if (key.isKeyCode (KeyPress::upKey       )) return makeUndoableNav (Navigation::backwardByLine);
+        if (key.isKeyCode (KeyPress::rightKey)) return nav (Navigation::forwardByChar);
+        if (key.isKeyCode (KeyPress::leftKey )) return nav (Navigation::backwardByChar);
+        if (key.isKeyCode (KeyPress::downKey )) return nav (Navigation::forwardByLine);
+        if (key.isKeyCode (KeyPress::upKey   )) return nav (Navigation::backwardByLine);
     }
 
-    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return makeUndoableNav (Navigation::toLineStart);
-    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return makeUndoableNav (Navigation::toLineEnd);
+    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return nav (Navigation::toLineStart);
+    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return nav (Navigation::toLineEnd);
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
@@ -883,9 +794,9 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         auto r = layout.fulfill (t);
 
         layout.setSelections ({ Selection (r.selection.tail) });
-        caret.refreshSelections();
-        gutter.refreshSelections();
-        highlight.refreshSelections();
+        caret.updateSelections();
+        gutter.updateSelections();
+        highlight.updateSelections();
 
         if (! r.affectedArea.isEmpty())
         {

@@ -23,10 +23,9 @@ namespace mcl {
     class CaretComponent;     // draws the caret symbol(s)
     class GutterComponent;    // draws the gutter
     class HighlightComponent; // draws the highlight region(s)
-    class TextAction;         // visits a layout, operates on text and caret ranges, is undoable
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;         // is a component, issues actions, computes view transform
-    class Transaction;        // the new formulation of 'action', is undoable
+    class Transaction;        // a text replacement, the layout computes the inverse on fulfilling it
     class Selection;          // stores leading and trailing edges of an editing region
 }
 
@@ -113,7 +112,7 @@ class mcl::CaretComponent : public juce::Component, private juce::Timer
 public:
     CaretComponent (const TextLayout& layout);
     void setViewTransform (const juce::AffineTransform& transformToUse);
-    void refreshSelections();
+    void updateSelections();
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
@@ -137,7 +136,7 @@ class mcl::GutterComponent : public juce::Component
 public:
     GutterComponent (const TextLayout& layout);
     void setViewTransform (const juce::AffineTransform& transformToUse);
-    void refreshSelections();
+    void updateSelections();
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
@@ -157,7 +156,7 @@ class mcl::HighlightComponent : public juce::Component
 public:
     HighlightComponent (const TextLayout& layout);
     void setViewTransform (const juce::AffineTransform& transformToUse);
-    void refreshSelections();
+    void updateSelections();
     
     //==========================================================================
     void paint (juce::Graphics& g) override;
@@ -166,50 +165,6 @@ private:
     //==========================================================================
     const TextLayout& layout;
     juce::AffineTransform transform;
-};
-
-
-
-
-//==============================================================================
-/**
-    All text layout actions can be expressed as three operations performed in serial:
- 
-    1. A (possible) modification to the selections
-    2. A (possible) replacement of the text in those selections
-    3. A (possible) modification to the selections
- 
-    The symmetry of the operation means that computing the inverse is trivial.
-
-    Insert character (assuming no initial selection):
-    1. Do nothing
-    2. Insert text at caret
-    3. Put selection at end of insertion
-*/
-class mcl::TextAction
-{
-public:
-    struct Report
-    {
-        bool navigationOcurred = false;
-        juce::Rectangle<float> textAreaAffected;
-    };
-    using Callback = std::function<void (Report)>;
-
-    TextAction();
-    TextAction (Callback callback, juce::Array<Selection> targetSelection);
-    TextAction (Callback callback, const juce::StringArray& contentToInsert);
-    bool perform (TextLayout& layout);
-    TextAction inverted();
-    juce::UndoableAction* on (TextLayout& layout) const;
-
-private:
-    class Undoable;
-    Callback callback = nullptr;
-    juce::StringArray replacementFwd;
-    juce::StringArray replacementRev;
-    juce::Array<Selection> navigationFwd;
-    juce::Array<Selection> navigationRev;
 };
 
 
@@ -359,13 +314,14 @@ public:
 private:
     //==========================================================================
     void updateViewTransform();
+    void updateSelections();
 
     bool tabKeyUsed = true;
     TextLayout layout;
     CaretComponent caret;
     GutterComponent gutter;
     HighlightComponent highlight;
-    std::function<void(TextAction::Report)> callback;
+
     float viewScaleFactor = 1.f;
     juce::Point<float> translation;
     juce::AffineTransform transform;
