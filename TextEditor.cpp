@@ -819,7 +819,15 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
 {
-    translateView (d.deltaX * 600, d.deltaY * 600);
+    float dx = d.deltaX;
+    /*
+     make scrolling away from the gutter just a little "sticky"
+     */
+    if (translation.x == GUTTER_WIDTH && -0.01f < dx && dx < 0.f)
+    {
+        dx = 0.f;
+    }
+    translateView (dx * 600, d.deltaY * 600);
 }
 
 void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
