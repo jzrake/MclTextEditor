@@ -92,7 +92,7 @@ void mcl::GutterComponent::updateSelections()
 
 void mcl::GutterComponent::paint (juce::Graphics& g)
 {
-    double start = Time::getMillisecondCounterHiRes();
+    // double start = Time::getMillisecondCounterHiRes();
 
     // DBG("A: " << Time::getMillisecondCounterHiRes() - start);
 
@@ -341,7 +341,7 @@ Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
+GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace, bool useCached) const
 {
     GlyphArrangement glyphs;
 
@@ -661,6 +661,8 @@ mcl::TextEditor::TextEditor()
 , gutter (layout)
 , highlight (layout)
 {
+    lastTransactionTime = Time::getApproximateMillisecondCounter();
+
     layout.setSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
     gutter.cacheLineNumberGlyphs();
@@ -722,12 +724,16 @@ void mcl::TextEditor::resized()
 void mcl::TextEditor::paint (Graphics& g)
 {
     g.fillAll (Colours::white);
-
     g.setColour (Colours::black);
+
+    // auto start = Time::getMillisecondCounterHiRes();
+
     layout.findGlyphsIntersecting (g.getClipBounds()
                                    .toFloat()
                                    .transformedBy (transform.inverted())
                                    ).draw (g, transform);
+
+    // DBG(Time::getMillisecondCounterHiRes() - start);
 }
 
 void mcl::TextEditor::paintOverChildren (Graphics& g)
@@ -840,7 +846,13 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
             }
         };
 
-        undo.beginNewTransaction();
+        double now = Time::getApproximateMillisecondCounter();
+
+        if (now > lastTransactionTime + 400)
+        {
+            lastTransactionTime = Time::getApproximateMillisecondCounter();
+            undo.beginNewTransaction();
+        }
         return undo.perform (t.on (layout, callback));
     };
 

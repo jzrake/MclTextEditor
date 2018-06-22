@@ -259,7 +259,7 @@ public:
     juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
 
     /** Return a glyph arrangement for the given row. */
-    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false) const;
+    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false, bool useCached=true) const;
     
     /** Return glyphs whose bounding boxes intersect the given area. */
     juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area) const;
@@ -340,6 +340,7 @@ private:
     void updateViewTransform();
     void updateSelections();
 
+    double lastTransactionTime;
     bool tabKeyUsed = true;
     TextLayout layout;
     CaretComponent caret;
