@@ -15,7 +15,8 @@ using namespace juce;
 
 
 
-#define GUTTER_WIDTH 36.f
+#define GUTTER_WIDTH 48.f
+#define CURSOR_WIDTH 3.f
 
 
 
@@ -24,7 +25,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    // startTimerHz (40);
+    startTimerHz (40);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -46,7 +47,10 @@ void mcl::CaretComponent::paint (Graphics& g)
 
     for (const auto& selection : layout.getSelections())
     {
-        auto b = layout.getGlyphBounds (selection.head).removeFromLeft (3.f).translated (-1.5f, 0.f).expanded (0.f, 1.f);
+        auto b = layout.getGlyphBounds (selection.head)
+            .removeFromLeft (CURSOR_WIDTH)
+            .translated (selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
+            .expanded (0.f, 1.f);
         g.fillRect (b);
     }
 }
@@ -85,26 +89,12 @@ void mcl::GutterComponent::refreshSelections()
 
 void mcl::GutterComponent::paint (juce::Graphics& g)
 {
+    /*
+     Draw the gutter background, shadow, and outline
+     ------------------------------------------------------------------
+     */
     g.setColour (Colours::whitesmoke);
     g.fillRect (getLocalBounds().removeFromLeft (GUTTER_WIDTH));
-
-    g.setColour (Colours::whitesmoke.darker (0.1f));
-
-    for (const auto& s : layout.getSelections())
-    {
-        auto patch = layout.getBoundsOnRow (s.head.x, juce::Range<int> (0, 1));
-        g.fillRect (patch.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
-    }
-    for (const auto& s : layout.getSelections())
-    {
-        auto region = Rectangle<float>();
-
-        for (const auto& patch : layout.getSelectionRegion (s))
-        {
-            region = region.getUnion (patch);
-        }
-        g.fillRect (region.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
-    }
 
     if (Point<float>().transformedBy (transform).getX() < GUTTER_WIDTH)
     {
@@ -116,8 +106,51 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
     }
     else
     {
-        g.setColour (Colours::lightblue);
-        g.drawVerticalLine (GUTTER_WIDTH - 1.f, 0.f, getHeight());
+        g.setColour (Colours::whitesmoke.darker (0.1f));
+        g.drawVerticalLine (GUTTER_WIDTH - 1., 0.f, getHeight());
+    }
+
+    /*
+     Draw the highlighted regions
+     ------------------------------------------------------------------
+     */
+    g.setColour (Colours::whitesmoke.darker (0.1f));
+
+    for (const auto& s : layout.getSelections()) // caret rows only
+    {
+        auto patch = layout.getBoundsOnRow (s.head.x, juce::Range<int> (0, 1));
+        g.fillRect (patch.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
+    }
+
+    for (const auto& s : layout.getSelections()) // highlighted regions
+    {
+        auto region = Rectangle<float>();
+
+        for (const auto& patch : layout.getSelectionRegion (s))
+        {
+            region = region.getUnion (patch);
+        }
+        g.fillRect (region.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
+    }
+
+    /*
+     Draw the line numbers
+     ------------------------------------------------------------------
+     */
+    auto area = g.getClipBounds()
+        .toFloat()
+        .transformedBy (transform.inverted());
+
+    g.setFont (Font ("Monaco", 12, 0));
+    g.setColour (Colours::grey);
+
+    for (const auto& r : layout.findRowsIntersecting (area))
+    {
+        auto area = r.bounds
+            .transformedBy (transform)
+            .withLeft (8)
+            .withWidth (GUTTER_WIDTH);
+        g.drawText (String (r.rowNumber), area, Justification::left);
     }
 }
 
@@ -413,6 +446,33 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area)
     return glyphs;
 }
 
+juce::Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (juce::Rectangle<float> area,
+                                                                             bool computeHorizontalExtent) const
+{
+    auto lineHeight = font.getHeight() * lineSpacing;
+    auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
+    auto row1 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getBottom() / lineHeight));
+    auto rows = Array<RowData>();
+
+    for (int n = row0; n <= row1; ++n)
+    {
+        RowData data;
+        data.rowNumber = n;
+
+        if (computeHorizontalExtent) // slower
+        {
+            data.bounds = getBoundsOnRow (n, Range<int> (0, getNumColumns (n)));
+        }
+        else // faster
+        {
+            data.bounds.setY      (getVerticalPosition(n, Metric::top));
+            data.bounds.setBottom (getVerticalPosition(n, Metric::bottom));
+        }
+        rows.add (data);
+    }
+    return rows;
+}
+
 Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
@@ -680,7 +740,7 @@ void mcl::TextEditor::translateView (float dx, float dy)
     auto W = viewScaleFactor * layout.getBounds().getWidth();
     auto H = viewScaleFactor * layout.getBounds().getHeight();
 
-    translation.x = jlimit (jmin (-0.f, -W + getWidth()) , GUTTER_WIDTH, translation.x + dx);
+    translation.x = jlimit (jmin (GUTTER_WIDTH, -W + getWidth()), GUTTER_WIDTH, translation.x + dx);
     translation.y = jlimit (jmin (-0.f, -H + getHeight()), 0.0f, translation.y + dy);
 
     updateViewTransform();
@@ -847,5 +907,5 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 MouseCursor mcl::TextEditor::getMouseCursor()
 {
-    return MouseCursor::IBeamCursor;
+    return getMouseXYRelative().x < GUTTER_WIDTH ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
 }

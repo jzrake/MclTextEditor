@@ -237,6 +237,12 @@ public:
         toLineStart, toLineEnd,
     };
 
+    struct RowData
+    {
+        int rowNumber;
+        juce::Rectangle<float> bounds;
+    };
+
     void setFont (juce::Font fontToUse) { font = fontToUse; }
 
     void replaceAll (const juce::String& content);
@@ -278,6 +284,13 @@ public:
     
     /** Return glyphs whose bounding boxes intersect the given area. */
     juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area) const;
+
+    /** Return data on the rows intersecting the given area. This is sort
+        of a convenience method for calling getBoundsOnRow() over a range,
+        but could be faster if horizontal extents are not computed.
+     */
+    juce::Array<RowData> findRowsIntersecting (juce::Rectangle<float> area,
+                                               bool computeHorizontalExtent=false) const;
 
     /** Find the row and column index nearest to the given position. */
     juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
@@ -346,7 +359,6 @@ public:
 private:
     //==========================================================================
     void updateViewTransform();
-    void paintRowsInAlternatingColors (juce::Graphics& g);
 
     bool tabKeyUsed = true;
     TextLayout layout;
