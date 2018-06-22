@@ -313,6 +313,7 @@ public:
 
 private:
     float lineSpacing = 1.25f;
+    mutable juce::Rectangle<float> cachedBounds;
     juce::Font font;
     juce::StringArray lines;
     juce::Array<Selection> selections;

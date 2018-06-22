@@ -15,6 +15,11 @@ using namespace juce;
 
 
 
+#define GUTTER_WIDTH 36.f
+
+
+
+
 //==============================================================================
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
@@ -81,14 +86,14 @@ void mcl::GutterComponent::refreshSelections()
 void mcl::GutterComponent::paint (juce::Graphics& g)
 {
     g.setColour (Colours::whitesmoke);
-    g.fillRect (getLocalBounds().removeFromLeft (24));
+    g.fillRect (getLocalBounds().removeFromLeft (GUTTER_WIDTH));
 
     g.setColour (Colours::whitesmoke.darker (0.1f));
 
     for (const auto& s : layout.getSelections())
     {
-        auto patch = layout.getBoundsOnRow (s.head.x, juce::Range<int>(0, 1));
-        g.fillRect (patch.transformedBy (transform).withLeft (0).withWidth (24));
+        auto patch = layout.getBoundsOnRow (s.head.x, juce::Range<int> (0, 1));
+        g.fillRect (patch.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
     }
     for (const auto& s : layout.getSelections())
     {
@@ -98,7 +103,21 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
         {
             region = region.getUnion (patch);
         }
-        g.fillRect (region.transformedBy (transform).withLeft (0).withWidth (24));
+        g.fillRect (region.transformedBy (transform).withLeft (0).withWidth (GUTTER_WIDTH));
+    }
+
+    if (Point<float>().transformedBy (transform).getX() < GUTTER_WIDTH)
+    {
+        auto shadowRect = getLocalBounds().withLeft (GUTTER_WIDTH).withWidth (10);
+        auto gradient = ColourGradient::horizontal (Colours::black.withAlpha (0.2f),
+                                                    Colours::transparentBlack, shadowRect);
+        g.setFillType (gradient);
+        g.fillRect (shadowRect);
+    }
+    else
+    {
+        g.setColour (Colours::lightblue);
+        g.drawVerticalLine (GUTTER_WIDTH - 1.f, 0.f, getHeight());
     }
 }
 
@@ -338,13 +357,17 @@ Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection
 
 juce::Rectangle<float> mcl::TextLayout::getBounds() const
 {
-    auto bounds = Rectangle<float>();
-
-    for (int n = 0; n < getNumRows(); ++n)
+    if (cachedBounds.isEmpty())
     {
-        bounds = bounds.getUnion (getBoundsOnRow (n, Range<int> (0, getNumColumns (n))));
+        auto bounds = Rectangle<float>();
+
+        for (int n = 0; n < getNumRows(); ++n)
+        {
+            bounds = bounds.getUnion (getBoundsOnRow (n, Range<int> (0, getNumColumns (n))));
+        }
+        return cachedBounds = bounds;
     }
-    return bounds;
+    return cachedBounds;
 }
 
 Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
@@ -515,6 +538,8 @@ String mcl::TextLayout::getSelectionContent (Selection s) const
 
 mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 {
+    cachedBounds = Rectangle<float>(); // invalidate the bounds
+
     // 1. Get the content on the affected rows as a single string L.
     // 2. Compute the linear start index i = s.head.y
     // 3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
@@ -636,12 +661,12 @@ mcl::TextEditor::TextEditor()
 
     layout.setSelections ({ Selection() });
     layout.setFont (Font ("Monaco", 16, 0));
-    translateView (24, 0);
+    translateView (GUTTER_WIDTH, 0);
     setWantsKeyboardFocus (true);
 
-    addAndMakeVisible (gutter);
     addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
+    addAndMakeVisible (gutter);
 }
 
 void mcl::TextEditor::setText (const String& text)
@@ -652,9 +677,12 @@ void mcl::TextEditor::setText (const String& text)
 
 void mcl::TextEditor::translateView (float dx, float dy)
 {
-    translation.x += dx;
-    translation.y = jlimit (jmin (-0.f, -layout.getHeight() * viewScaleFactor + getHeight()),
-                            0.f, translation.y + dy);
+    auto W = viewScaleFactor * layout.getBounds().getWidth();
+    auto H = viewScaleFactor * layout.getBounds().getHeight();
+
+    translation.x = jlimit (jmin (-0.f, -W + getWidth()) , GUTTER_WIDTH, translation.x + dx);
+    translation.y = jlimit (jmin (-0.f, -H + getHeight()), 0.0f, translation.y + dy);
+
     updateViewTransform();
 }
 
@@ -666,7 +694,6 @@ void mcl::TextEditor::scaleView (float scaleFactor)
 
 void mcl::TextEditor::updateViewTransform()
 {
-    // transform = AffineTransform::translation (translation.x, translation.y).scaled (viewScaleFactor);
     transform = AffineTransform::scale (viewScaleFactor).translated (translation.x, translation.y);
     highlight.setViewTransform (transform);
     caret.setViewTransform (transform);
@@ -694,11 +721,6 @@ void mcl::TextEditor::paint (Graphics& g)
 
 void mcl::TextEditor::paintOverChildren (Graphics& g)
 {
-//    g.setColour (Colours::black);
-//    layout.findGlyphsIntersecting (g.getClipBounds()
-//                                   .toFloat()
-//                                   .transformedBy (transform.inverted())
-//                                   ).draw (g, transform);
 }
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
@@ -737,7 +759,7 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
 {
-    translateView (0, d.deltaY * 600);
+    translateView (d.deltaX * 600, d.deltaY * 600);
 }
 
 void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
@@ -827,4 +849,3 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 {
     return MouseCursor::IBeamCursor;
 }
-
