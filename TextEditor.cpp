@@ -480,6 +480,11 @@ float mcl::TextLayout::getVerticalPosition (int row, Metric metric) const
     }
 }
 
+Point<float> mcl::TextLayout::getPosition (Point<int> index, Metric metric) const
+{
+    return Point<float> (getGlyphBounds (index).getX(), getVerticalPosition (index.x, metric));
+}
+
 Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection) const
 {
     Array<Rectangle<float>> patches;
@@ -960,6 +965,19 @@ void mcl::TextEditor::updateViewTransform()
 
 void mcl::TextEditor::updateSelections()
 {
+    auto i = layout.getSelections().getFirst().head;
+    auto t = Point<float> (0.f, layout.getVerticalPosition (i.x, TextLayout::Metric::top))   .transformedBy (transform);
+    auto b = Point<float> (0.f, layout.getVerticalPosition (i.x, TextLayout::Metric::bottom)).transformedBy (transform);
+
+    if (t.y < 0.f)
+    {
+        translateView (0.f, -t.y);
+    }
+    else if (b.y > getHeight())
+    {
+        translateView (0.f, -b.y + getHeight());
+    }
+
     highlight.updateSelections();
     caret.updateSelections();
     gutter.updateSelections();
@@ -1053,6 +1071,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         updateSelections();
         return true;
     };
+
     auto expand = [this] (TextLayout::Navigation navigation)
     {
         layout.setSelections (layout.getSelections (navigation, true));

@@ -277,6 +277,10 @@ public:
     /** Return the vertical position of a metric on a row. */
     float getVerticalPosition (int row, Metric metric) const;
 
+    /** Return the position in the layout at the given index, using the given
+        metric for the vertical position. */
+    juce::Point<float> getPosition (juce::Point<int> index, Metric metric) const;
+
     /** Return an array of rectangles covering the given selection. */
     juce::Array<juce::Rectangle<float>> getSelectionRegion (Selection selection) const;
 
