@@ -344,7 +344,7 @@ public:
 
     /** Move the given index to the next word if possible. */
     bool nextWord (juce::Point<int>& index) const;
-    
+
     /** Move the given index to the previous word if possible. */
     bool prevWord (juce::Point<int>& index) const;
 
@@ -399,6 +399,7 @@ private:
     //==========================================================================
     void updateViewTransform();
     void updateSelections();
+    void translateToEnsureCaretIsVisible();
 
     double lastTransactionTime;
     bool tabKeyUsed = true;

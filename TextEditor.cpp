@@ -976,6 +976,13 @@ void mcl::TextEditor::updateViewTransform()
 
 void mcl::TextEditor::updateSelections()
 {
+    highlight.updateSelections();
+    caret.updateSelections();
+    gutter.updateSelections();
+}
+
+void mcl::TextEditor::translateToEnsureCaretIsVisible()
+{
     auto i = layout.getSelections().getFirst().head;
     auto t = Point<float> (0.f, layout.getVerticalPosition (i.x, TextLayout::Metric::top))   .transformedBy (transform);
     auto b = Point<float> (0.f, layout.getVerticalPosition (i.x, TextLayout::Metric::bottom)).transformedBy (transform);
@@ -988,10 +995,6 @@ void mcl::TextEditor::updateSelections()
     {
         translateView (0.f, -b.y + getHeight());
     }
-
-    highlight.updateSelections();
-    caret.updateSelections();
-    gutter.updateSelections();
 }
 
 void mcl::TextEditor::resized()
@@ -1049,6 +1052,7 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
         auto selection = layout.getSelections().getFirst();
         selection.head = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
         layout.setSelections ({ selection });
+        translateToEnsureCaretIsVisible();
         updateSelections();
     }
 }
@@ -1087,6 +1091,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     auto nav = [this] (TextLayout::Navigation navigation)
     {
         layout.setSelections (layout.getSelections (navigation));
+        translateToEnsureCaretIsVisible();
         updateSelections();
         return true;
     };
@@ -1177,4 +1182,3 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 {
     return getMouseXYRelative().x < GUTTER_WIDTH ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
 }
-
