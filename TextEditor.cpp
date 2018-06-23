@@ -192,21 +192,20 @@ void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& tra
 
 void mcl::HighlightComponent::updateSelections()
 {
-    if (useRoundedHighlight)
-    {
-        auto region = layout.getSelectionRegion (layout.getSelections().getFirst());
-        SelectionOutliner::addRectanglesToMakeContiguous (region);
-        selectionBoundary = SelectionOutliner (region).getOutlinePath().createPathWithRoundedCorners (4.f);
-    }
     repaint();
 }
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
     g.addTransform (transform);
+    auto clip = g.getClipBounds().toFloat();
 
     if (useRoundedHighlight)
     {
+        auto region = layout.getSelectionRegion (layout.getSelections().getFirst(), clip);
+        SelectionOutliner::addRectanglesToMakeContiguous (region);
+        auto selectionBoundary = SelectionOutliner (region).getOutlinePath().createPathWithRoundedCorners (4.f);
+
         g.setColour (Colours::black.withAlpha (0.2f));
         g.fillPath (selectionBoundary);
 
@@ -215,7 +214,6 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
     }
     else
     {
-        auto clip = g.getClipBounds().toFloat();
         g.setColour (Colours::black.withAlpha (0.2f));
 
         for (const auto& s : layout.getSelections())
@@ -510,7 +508,9 @@ Array<float> mcl::SelectionOutliner::getUniqueCoordinatesY (const Array<Rectangl
 
 Array<float> mcl::SelectionOutliner::uniqueValuesOfSortedArray (const Array<float>& X)
 {
-    jassert (! X.isEmpty());
+    if (X.isEmpty())
+        return {};
+
     Array<float> unique { X.getFirst() };
 
     for (const auto& x : X)

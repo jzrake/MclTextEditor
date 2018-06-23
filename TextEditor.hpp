@@ -189,7 +189,7 @@ private:
     bool useRoundedHighlight = true;
     const TextLayout& layout;
     juce::AffineTransform transform;
-    juce::Path selectionBoundary;
+    // juce::Path selectionBoundary;
 };
 
 
@@ -199,6 +199,9 @@ private:
 /**
  A class that computes the boundary of a collection of rectanglular patches, and
  can return it as a path or as a list of lines.
+
+ Note: There is an N^2 algorithm in here that makes it slow for large regions.
+ There should be a way to make it O(N) but I haven't thought of something yet.
  */
 class mcl::SelectionOutliner
 {
