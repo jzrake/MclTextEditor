@@ -185,7 +185,7 @@ public:
 
 private:
     //==========================================================================
-    bool useRoundedHighlight = false;
+    bool useRoundedHighlight = true;
     const TextLayout& layout;
     juce::AffineTransform transform;
     juce::Path selectionBoundary;
@@ -213,7 +213,7 @@ public:
     juce::Array<bool> getOccupationMatrix() const;
     juce::Rectangle<float> getGridPatch (int binIndexI, int binIndexJ) const;
     juce::Array<juce::Line<float>> getListOfBoundaryLines() const;
-    juce::Path getOutlinePath (float cornerSize=3.f) const;
+    juce::Path getOutlinePath() const;
     
 private:
     static juce::Array<float> uniqueValuesOfSortedArray (const juce::Array<float>& X);

@@ -186,24 +186,44 @@ void mcl::HighlightComponent::updateSelections()
     if (useRoundedHighlight)
     {
         auto region = layout.getSelectionRegion (layout.getSelections().getFirst());
-        selectionBoundary = RectanglePatchList (region).getOutlinePath (3.f);
+
+        auto augmentedRegion = decltype (region)();
+        augmentedRegion.resize (2 * region.size() - 1);
+
+        /**
+         This approach is not quite right, the additional rectangles
+         create unwanted artifacts on the corners. Leaving it here
+         just for kicks.
+         */
+        for (int n = 0; n < augmentedRegion.size(); ++n)
+        {
+            if (n % 2 == 0)
+            {
+                augmentedRegion.setUnchecked (n, region.getReference (n / 2));
+            }
+            else
+            {
+                const auto& A = region.getReference (n / 2);
+                const auto& B = region.getReference (n / 2 + 1);
+                auto C = A.getUnion (B);
+                augmentedRegion.setUnchecked (n, C.withSizeKeepingCentre (C.getWidth(), 1.f));
+            }
+        }
+        selectionBoundary = RectanglePatchList (augmentedRegion).getOutlinePath().createPathWithRoundedCorners (5.f);
     }
     repaint();
 }
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
-    // g.setColour (Colours::grey);
-    // g.drawText (layout.getSelections().getFirst().toString(), getLocalBounds().toFloat(), Justification::bottomRight);
-
     g.addTransform (transform);
 
     if (useRoundedHighlight)
     {
         g.setColour (Colours::black.withAlpha (0.2f));
         g.fillPath (selectionBoundary);
-        
-        g.setColour (Colours::black.withAlpha (0.25f));
+
+        g.setColour (Colours::black.withAlpha (0.3f));
         g.strokePath (selectionBoundary, PathStrokeType (1.f));
     }
     else
@@ -341,7 +361,7 @@ Array<juce::Line<float>> mcl::RectanglePatchList::getListOfBoundaryLines() const
     return lines;
 }
 
-Path mcl::RectanglePatchList::getOutlinePath (float cornerSize) const
+Path mcl::RectanglePatchList::getOutlinePath() const
 {
     auto p = Path();
     auto lines = getListOfBoundaryLines();
@@ -373,19 +393,15 @@ Path mcl::RectanglePatchList::getOutlinePath (float cornerSize) const
     };
 
     auto currentLine = lines.getFirst();
-    p.startNewSubPath (currentLine.withShortenedStart (cornerSize).getStart());
+    p.startNewSubPath (currentLine.getStart());
 
-    do {
-        auto nextLine = findOtherLineWithEndpoint (currentLine);
-
-        p.lineTo (currentLine.withShortenedEnd (cornerSize).getEnd());
-        p.quadraticTo (nextLine.getStart(), nextLine.withShortenedStart (cornerSize).getStart());
-
-        currentLine = nextLine;
-    } while (currentLine != lines.getFirst());
+    do
+    {
+        p.lineTo (currentLine.getEnd());
+        currentLine = findOtherLineWithEndpoint (currentLine);
+    } while (currentLine.getEnd() != p.getPointAlongPath (0.f));
 
     p.closeSubPath();
-
     return p;
 }
 
