@@ -26,7 +26,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    // startTimerHz (20);
+    startTimerHz (20);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -139,31 +139,40 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
             g.setColour (Colours::whitesmoke.darker (0.1f));
             g.fillRect (A);
         }
-        g.setColour (Colours::grey);
 
-        if (r.rowNumber < lineNumberGlyphsCache.size())
-        {
-            lineNumberGlyphsCache.getReference (r.rowNumber).draw (g, verticalTransform);
-        }
+        g.setColour (Colours::grey);
+        getLineNumberGlyphs (r.rowNumber, true).draw (g, verticalTransform);
     }
 
     // DBG("C: " << Time::getMillisecondCounterHiRes() - start);
 }
 
-void mcl::GutterComponent::cacheLineNumberGlyphs()
+void mcl::GutterComponent::cacheLineNumberGlyphs (int cacheSize)
 {
     /*
-     Larger cache sizes than ~1000 slows component loading. This needs a
-     smarter implementation, like momoizing the 100 most recent calls.
+     Larger cache sizes than ~1000 slows component loading. The proper way to
+     do this is to write a GlyphArrangementMemoizer class. Soon enough.
      */
-    for (int n = 0; n < 1000; ++n)
+    lineNumberGlyphsCache.clearQuick();
+
+    for (int n = 0; n < cacheSize; ++n)
     {
-        GlyphArrangement glyphs;
-        glyphs.addLineOfText (layout.getFont().withHeight (12.f),
-                              String (n),
-                              8.f, layout.getVerticalPosition (n, TextLayout::Metric::baseline));
-        lineNumberGlyphsCache.add (glyphs);
+        lineNumberGlyphsCache.add (getLineNumberGlyphs (n, false));
     }
+}
+
+juce::GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool useCached) const
+{
+    if (useCached && row < lineNumberGlyphsCache.size())
+    {
+        return lineNumberGlyphsCache.getReference (row);
+    }
+
+    GlyphArrangement glyphs;
+    glyphs.addLineOfText (layout.getFont().withHeight (12.f),
+                          String (row),
+                          8.f, layout.getVerticalPosition (row, TextLayout::Metric::baseline));
+    return glyphs;
 }
 
 
@@ -1105,7 +1114,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     }
     if (! e.mods.isCommandDown() || ! TEST_MULTI_CARET_EDITING)
     {
-        selections.clear();
+        selections.clearQuick();
     }
 
     selections.add (index);

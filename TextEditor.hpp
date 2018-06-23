@@ -157,12 +157,13 @@ public:
     GutterComponent (const TextLayout& layout);
     void setViewTransform (const juce::AffineTransform& transformToUse);
     void updateSelections();
-    void cacheLineNumberGlyphs();
+    void cacheLineNumberGlyphs (int cacheSize=1000);
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
 
 private:
+    juce::GlyphArrangement getLineNumberGlyphs (int row, bool useCached) const;
     //==========================================================================
     const TextLayout& layout;
     juce::AffineTransform transform;
