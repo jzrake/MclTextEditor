@@ -23,7 +23,6 @@ namespace mcl {
     class CaretComponent;     // draws the caret symbol(s)
     class GutterComponent;    // draws the gutter
     class HighlightComponent; // draws the highlight region(s)
-    class SelectionOutliner;  // encapuslates traversal of a highlight boundary
     class Selection;          // stores leading and trailing edges of an editing region
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;         // is a component, issues actions, computes view transform
@@ -185,47 +184,12 @@ public:
     void paint (juce::Graphics& g) override;
 
 private:
+    static juce::Path getOutlinePath (const juce::Array<juce::Rectangle<float>>& rectangles);
+
     //==========================================================================
     bool useRoundedHighlight = true;
     const TextLayout& layout;
     juce::AffineTransform transform;
-    // juce::Path selectionBoundary;
-};
-
-
-
-
-//==============================================================================
-/**
- A class that computes the boundary of a collection of rectanglular patches, and
- can return it as a path or as a list of lines.
-
- Note: There is an N^2 algorithm in here that makes it slow for large regions.
- There should be a way to make it O(N) but I haven't thought of something yet.
- */
-class mcl::SelectionOutliner
-{
-public:
-    SelectionOutliner (const juce::Array<juce::Rectangle<float>>& rectangles);
-    bool checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const;
-    bool isBinOccupied (int binIndexI, int binIndexJ) const;
-    juce::Array<bool> getOccupationMatrix() const;
-    juce::Rectangle<float> getGridPatch (int binIndexI, int binIndexJ) const;
-    juce::Array<juce::Rectangle<float>> getGridPatches() const;
-    juce::Array<juce::Line<float>> getListOfBoundaryLines() const;
-    juce::Array<juce::Point<float>> getBoundaryTraversingPoints() const;
-    juce::Path getOutlinePath() const;
-
-    static void addRectanglesToMakeContiguous (juce::Array<juce::Rectangle<float>>&);
-
-private:
-    static juce::Array<float> uniqueValuesOfSortedArray (const juce::Array<float>& X);
-    static juce::Array<float> getUniqueCoordinatesX (const juce::Array<juce::Rectangle<float>>& rectangles);
-    static juce::Array<float> getUniqueCoordinatesY (const juce::Array<juce::Rectangle<float>>& rectangles);
-    
-    juce::Array<juce::Rectangle<float>> rectangles;
-    juce::Array<float> xedges;
-    juce::Array<float> yedges;
 };
 
 

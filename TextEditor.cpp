@@ -203,14 +203,13 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
     if (useRoundedHighlight)
     {
         auto region = layout.getSelectionRegion (layout.getSelections().getFirst(), clip);
-        SelectionOutliner::addRectanglesToMakeContiguous (region);
-        auto selectionBoundary = SelectionOutliner (region).getOutlinePath().createPathWithRoundedCorners (4.f);
+        auto p = getOutlinePath (region);
 
         g.setColour (Colours::black.withAlpha (0.2f));
-        g.fillPath (selectionBoundary);
+        g.fillPath (p);
 
         g.setColour (Colours::black.withAlpha (0.3f));
-        g.strokePath (selectionBoundary, PathStrokeType (1.f));
+        g.strokePath (p, PathStrokeType (1.f));
     }
     else
     {
@@ -224,6 +223,33 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
             }
         }
     }
+}
+
+Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rectangles)
+{
+    auto p = Path();
+    auto rect = rectangles.begin();
+
+    if (rect == rectangles.end())
+        return p;
+
+    p.startNewSubPath (rect->getTopLeft());
+    p.lineTo (rect->getBottomLeft());
+
+    while (++rect != rectangles.end())
+    {
+        p.lineTo (rect->getTopLeft());
+        p.lineTo (rect->getBottomLeft());
+    }
+
+    while (rect-- != rectangles.begin())
+    {
+        p.lineTo (rect->getBottomRight());
+        p.lineTo (rect->getTopRight());
+    }
+
+    p.closeSubPath();
+    return p.createPathWithRoundedCorners (4.f);
 }
 
 
@@ -260,264 +286,6 @@ mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) 
         s.tail.y = 0;
     }
     return s;
-}
-
-
-
-
-//==============================================================================
-mcl::SelectionOutliner::SelectionOutliner (const Array<Rectangle<float>>& rectangles)
-: rectangles (rectangles)
-{
-    xedges = getUniqueCoordinatesX (rectangles);
-    yedges = getUniqueCoordinatesY (rectangles);
-}
-
-bool mcl::SelectionOutliner::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
-{
-    return rectangles.getReference (rectangleIndex).intersects (getGridPatch (binIndexI, binIndexJ));
-}
-
-bool mcl::SelectionOutliner::isBinOccupied (int binIndexI, int binIndexJ) const
-{
-    for (int n = 0; n < rectangles.size(); ++n)
-    {
-        if (checkIfRectangleFallsInBin (n, binIndexI, binIndexJ))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-Rectangle<float> mcl::SelectionOutliner::getGridPatch (int binIndexI, int binIndexJ) const
-{
-    auto gridPatch = Rectangle<float>();
-    gridPatch.setHorizontalRange (Range<float> (xedges.getUnchecked (binIndexI), xedges.getUnchecked (binIndexI + 1)));
-    gridPatch.setVerticalRange   (Range<float> (yedges.getUnchecked (binIndexJ), yedges.getUnchecked (binIndexJ + 1)));
-    return gridPatch;
-}
-
-juce::Array<juce::Rectangle<float>> mcl::SelectionOutliner::getGridPatches() const
-{
-    auto ni = xedges.size() - 1;
-    auto nj = yedges.size() - 1;
-    auto patches = Array<Rectangle<float>>();
-
-    for (int i = 0; i < ni; ++i)
-    {
-        for (int j = 0; j < nj; ++j)
-        {
-            patches.add (getGridPatch (i, j));
-        }
-    }
-    return patches;
-}
-
-Array<juce::Line<float>> mcl::SelectionOutliner::getListOfBoundaryLines() const
-{
-    auto matrix = getOccupationMatrix();
-    auto ni = xedges.size() - 1;
-    auto nj = yedges.size() - 1;
-    auto lines = Array<Line<float>>();
-
-    for (int i = 0; i < ni; ++i)
-    {
-        for (int j = 0; j < nj; ++j)
-        {
-            if (matrix.getUnchecked (nj * i + j))
-            {
-                bool L = i == 0      || ! matrix.getUnchecked (nj * (i - 1) + j);
-                bool R = i == ni - 1 || ! matrix.getUnchecked (nj * (i + 1) + j);
-                bool T = j == 0      || ! matrix.getUnchecked (nj * i + (j - 1));
-                bool B = j == nj - 1 || ! matrix.getUnchecked (nj * i + (j + 1));
-
-                if (L)
-                {
-                    auto p0 = Point<float> (xedges.getUnchecked (i), yedges.getUnchecked (j + 0));
-                    auto p1 = Point<float> (xedges.getUnchecked (i), yedges.getUnchecked (j + 1));
-                    lines.add (Line<float> (p0, p1));
-                }
-                if (R)
-                {
-                    auto p0 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 0));
-                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
-                    lines.add (Line<float> (p0, p1));
-                }
-                if (T)
-                {
-                    auto p0 = Point<float> (xedges.getUnchecked (i + 0), yedges.getUnchecked (j));
-                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j));
-                    lines.add (Line<float> (p0, p1));
-                }
-                if (B)
-                {
-                    auto p0 = Point<float> (xedges.getUnchecked (i + 0), yedges.getUnchecked (j + 1));
-                    auto p1 = Point<float> (xedges.getUnchecked (i + 1), yedges.getUnchecked (j + 1));
-                    lines.add (Line<float> (p0, p1));
-                }
-            }
-        }
-    }
-    return lines;
-}
-
-juce::Array<juce::Point<float>> mcl::SelectionOutliner::getBoundaryTraversingPoints() const
-{
-    auto lines = getListOfBoundaryLines();
-
-    if (lines.isEmpty())
-    {
-        return {};
-    }
-
-    auto findOtherLineWithEndpoint = [&lines] (Line<float> ab)
-    {
-        for (const auto& line : lines)
-        {
-            if (! (line == ab || line == ab.reversed()))
-            {
-                // If the line starts on b, then return it.
-                if (line.getStart() == ab.getEnd())
-                {
-                    return line;
-                }
-                // If the line ends on b, then reverse and return it.
-                if (line.getEnd() == ab.getEnd())
-                {
-                    return line.reversed();
-                }
-            }
-        }
-        return Line<float>();
-    };
-
-    auto currentLine = lines.getFirst();
-    auto startPoint = currentLine.getStart();
-    auto traversingPoints = juce::Array<juce::Point<float>>();
-
-    do
-    {
-        traversingPoints.add (currentLine.getStart());
-        currentLine = findOtherLineWithEndpoint (currentLine);
-    } while (currentLine.getStart() != startPoint);
-
-    /*
-     Remove the middle point of any colinear triples.
-     */
-    for (int n = 1; n < traversingPoints.size() - 1; ++n)
-    {
-        const auto& A = traversingPoints.getReference (n - 1);
-        const auto& B = traversingPoints.getReference (n);
-        const auto& C = traversingPoints.getReference (n + 1);
-
-        if ((A.getX() == B.getX() && B.getX() == C.getX()) ||
-            (A.getY() == B.getY() && B.getY() == C.getY()))
-        {
-            traversingPoints.remove (n--);
-        }
-    }
-    return traversingPoints;
-}
-
-Path mcl::SelectionOutliner::getOutlinePath() const
-{
-    auto p = Path();
-    auto first = true;
-
-    for (const auto& point : getBoundaryTraversingPoints())
-    {
-        if (first)
-        {
-            p.startNewSubPath (point);
-            first = false;
-        }
-        else
-        {
-            p.lineTo (point);
-        }
-    }
-    p.closeSubPath();
-    return p;
-}
-
-juce::Array<bool> mcl::SelectionOutliner::getOccupationMatrix() const
-{
-    auto matrix = Array<bool>();
-    auto ni = xedges.size() - 1;
-    auto nj = yedges.size() - 1;
-
-    matrix.resize (ni * nj);
-
-    for (int i = 0; i < ni; ++i)
-    {
-        for (int j = 0; j < nj; ++j)
-        {
-            matrix.setUnchecked (nj * i + j, isBinOccupied (i, j));
-        }
-    }
-    return matrix;
-}
-
-void mcl::SelectionOutliner::addRectanglesToMakeContiguous (juce::Array<juce::Rectangle<float>>& rectangles)
-{
-    juce::Array<juce::Rectangle<float>> additionalRectangles;
-
-    for (int n = 0; n < rectangles.size() - 1; ++n)
-    {
-        auto& A = rectangles.getReference (n);
-        auto& B = rectangles.getReference (n + 1);
-
-        jassert (A.getBottom() == B.getY());
-
-        if (A.getX() > B.getRight())
-        {
-            B.setTop (A.getBottom() - 0.5f);
-            additionalRectangles.add (Rectangle<float>::leftTopRightBottom (B.getRight(),
-                                                                            B.getY(),
-                                                                            A.getX(),
-                                                                            A.getBottom()));
-        }
-    }
-    rectangles.addArray (additionalRectangles);
-}
-
-Array<float> mcl::SelectionOutliner::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
-{
-    Array<float> X;
-
-    for (const auto& rect : rectangles)
-    {
-        X.addUsingDefaultSort (rect.getX());
-        X.addUsingDefaultSort (rect.getRight());
-    }
-    return uniqueValuesOfSortedArray (X);
-}
-
-Array<float> mcl::SelectionOutliner::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
-{
-    Array<float> Y;
-
-    for (const auto& rect : rectangles)
-    {
-        Y.addUsingDefaultSort (rect.getY());
-        Y.addUsingDefaultSort (rect.getBottom());
-    }
-    return uniqueValuesOfSortedArray (Y);
-}
-
-Array<float> mcl::SelectionOutliner::uniqueValuesOfSortedArray (const Array<float>& X)
-{
-    if (X.isEmpty())
-        return {};
-
-    Array<float> unique { X.getFirst() };
-
-    for (const auto& x : X)
-        if (x != unique.getLast())
-            unique.add (x);
-
-    return unique;
 }
 
 
