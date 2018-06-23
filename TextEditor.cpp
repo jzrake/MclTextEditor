@@ -26,7 +26,7 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
-    startTimerHz (20);
+    // startTimerHz (20);
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -186,30 +186,8 @@ void mcl::HighlightComponent::updateSelections()
     if (useRoundedHighlight)
     {
         auto region = layout.getSelectionRegion (layout.getSelections().getFirst());
-
-        auto augmentedRegion = decltype (region)();
-        augmentedRegion.resize (2 * region.size() - 1);
-
-        /**
-         This approach is not quite right, the additional rectangles
-         create unwanted artifacts on the corners. Leaving it here
-         just for kicks.
-         */
-        for (int n = 0; n < augmentedRegion.size(); ++n)
-        {
-            if (n % 2 == 0)
-            {
-                augmentedRegion.setUnchecked (n, region.getReference (n / 2));
-            }
-            else
-            {
-                const auto& A = region.getReference (n / 2);
-                const auto& B = region.getReference (n / 2 + 1);
-                auto C = A.getUnion (B);
-                augmentedRegion.setUnchecked (n, C.withSizeKeepingCentre (C.getWidth(), 1.f));
-            }
-        }
-        selectionBoundary = RectanglePatchList (augmentedRegion).getOutlinePath().createPathWithRoundedCorners (5.f);
+        SelectionOutliner::addRectanglesToMakeContiguous (region);
+        selectionBoundary = SelectionOutliner (region).getOutlinePath().createPathWithRoundedCorners (4.f);
     }
     repaint();
 }
@@ -281,19 +259,19 @@ mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) 
 
 
 //==============================================================================
-mcl::RectanglePatchList::RectanglePatchList (const Array<Rectangle<float>>& rectangles)
+mcl::SelectionOutliner::SelectionOutliner (const Array<Rectangle<float>>& rectangles)
 : rectangles (rectangles)
 {
     xedges = getUniqueCoordinatesX (rectangles);
     yedges = getUniqueCoordinatesY (rectangles);
 }
 
-bool mcl::RectanglePatchList::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
+bool mcl::SelectionOutliner::checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const
 {
     return rectangles.getReference (rectangleIndex).intersects (getGridPatch (binIndexI, binIndexJ));
 }
 
-bool mcl::RectanglePatchList::isBinOccupied (int binIndexI, int binIndexJ) const
+bool mcl::SelectionOutliner::isBinOccupied (int binIndexI, int binIndexJ) const
 {
     for (int n = 0; n < rectangles.size(); ++n)
     {
@@ -305,7 +283,7 @@ bool mcl::RectanglePatchList::isBinOccupied (int binIndexI, int binIndexJ) const
     return false;
 }
 
-Rectangle<float> mcl::RectanglePatchList::getGridPatch (int binIndexI, int binIndexJ) const
+Rectangle<float> mcl::SelectionOutliner::getGridPatch (int binIndexI, int binIndexJ) const
 {
     auto gridPatch = Rectangle<float>();
     gridPatch.setHorizontalRange (Range<float> (xedges.getUnchecked (binIndexI), xedges.getUnchecked (binIndexI + 1)));
@@ -313,7 +291,23 @@ Rectangle<float> mcl::RectanglePatchList::getGridPatch (int binIndexI, int binIn
     return gridPatch;
 }
 
-Array<juce::Line<float>> mcl::RectanglePatchList::getListOfBoundaryLines() const
+juce::Array<juce::Rectangle<float>> mcl::SelectionOutliner::getGridPatches() const
+{
+    auto ni = xedges.size() - 1;
+    auto nj = yedges.size() - 1;
+    auto patches = Array<Rectangle<float>>();
+
+    for (int i = 0; i < ni; ++i)
+    {
+        for (int j = 0; j < nj; ++j)
+        {
+            patches.add (getGridPatch (i, j));
+        }
+    }
+    return patches;
+}
+
+Array<juce::Line<float>> mcl::SelectionOutliner::getListOfBoundaryLines() const
 {
     auto matrix = getOccupationMatrix();
     auto ni = xedges.size() - 1;
@@ -361,14 +355,13 @@ Array<juce::Line<float>> mcl::RectanglePatchList::getListOfBoundaryLines() const
     return lines;
 }
 
-Path mcl::RectanglePatchList::getOutlinePath() const
+juce::Array<juce::Point<float>> mcl::SelectionOutliner::getBoundaryTraversingPoints() const
 {
-    auto p = Path();
     auto lines = getListOfBoundaryLines();
 
     if (lines.isEmpty())
     {
-        return p;
+        return {};
     }
 
     auto findOtherLineWithEndpoint = [&lines] (Line<float> ab)
@@ -393,19 +386,55 @@ Path mcl::RectanglePatchList::getOutlinePath() const
     };
 
     auto currentLine = lines.getFirst();
-    p.startNewSubPath (currentLine.getStart());
+    auto startPoint = currentLine.getStart();
+    auto traversingPoints = juce::Array<juce::Point<float>>();
 
     do
     {
-        p.lineTo (currentLine.getEnd());
+        traversingPoints.add (currentLine.getStart());
         currentLine = findOtherLineWithEndpoint (currentLine);
-    } while (currentLine.getEnd() != p.getPointAlongPath (0.f));
+    } while (currentLine.getStart() != startPoint);
 
+    /*
+     Remove the middle point of any colinear triples.
+     */
+    for (int n = 1; n < traversingPoints.size() - 1; ++n)
+    {
+        const auto& A = traversingPoints.getReference (n - 1);
+        const auto& B = traversingPoints.getReference (n);
+        const auto& C = traversingPoints.getReference (n + 1);
+
+        if ((A.getX() == B.getX() && B.getX() == C.getX()) ||
+            (A.getY() == B.getY() && B.getY() == C.getY()))
+        {
+            traversingPoints.remove (n--);
+        }
+    }
+    return traversingPoints;
+}
+
+Path mcl::SelectionOutliner::getOutlinePath() const
+{
+    auto p = Path();
+    auto first = true;
+
+    for (const auto& point : getBoundaryTraversingPoints())
+    {
+        if (first)
+        {
+            p.startNewSubPath (point);
+            first = false;
+        }
+        else
+        {
+            p.lineTo (point);
+        }
+    }
     p.closeSubPath();
     return p;
 }
 
-juce::Array<bool> mcl::RectanglePatchList::getOccupationMatrix() const
+juce::Array<bool> mcl::SelectionOutliner::getOccupationMatrix() const
 {
     auto matrix = Array<bool>();
     auto ni = xedges.size() - 1;
@@ -423,7 +452,30 @@ juce::Array<bool> mcl::RectanglePatchList::getOccupationMatrix() const
     return matrix;
 }
 
-Array<float> mcl::RectanglePatchList::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
+void mcl::SelectionOutliner::addRectanglesToMakeContiguous (juce::Array<juce::Rectangle<float>>& rectangles)
+{
+    juce::Array<juce::Rectangle<float>> additionalRectangles;
+
+    for (int n = 0; n < rectangles.size() - 1; ++n)
+    {
+        auto& A = rectangles.getReference (n);
+        auto& B = rectangles.getReference (n + 1);
+
+        jassert (A.getBottom() == B.getY());
+
+        if (A.getX() > B.getRight())
+        {
+            B.setTop (A.getBottom() - 0.5f);
+            additionalRectangles.add (Rectangle<float>::leftTopRightBottom (B.getRight(),
+                                                                            B.getY(),
+                                                                            A.getX(),
+                                                                            A.getBottom()));
+        }
+    }
+    rectangles.addArray (additionalRectangles);
+}
+
+Array<float> mcl::SelectionOutliner::getUniqueCoordinatesX (const Array<Rectangle<float>>& rectangles)
 {
     Array<float> X;
 
@@ -435,7 +487,7 @@ Array<float> mcl::RectanglePatchList::getUniqueCoordinatesX (const Array<Rectang
     return uniqueValuesOfSortedArray (X);
 }
 
-Array<float> mcl::RectanglePatchList::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
+Array<float> mcl::SelectionOutliner::getUniqueCoordinatesY (const Array<Rectangle<float>>& rectangles)
 {
     Array<float> Y;
 
@@ -447,7 +499,7 @@ Array<float> mcl::RectanglePatchList::getUniqueCoordinatesY (const Array<Rectang
     return uniqueValuesOfSortedArray (Y);
 }
 
-Array<float> mcl::RectanglePatchList::uniqueValuesOfSortedArray (const Array<float>& X)
+Array<float> mcl::SelectionOutliner::uniqueValuesOfSortedArray (const Array<float>& X)
 {
     jassert (! X.isEmpty());
     Array<float> unique { X.getFirst() };
@@ -812,8 +864,8 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
      account for the new content, are returned in the reciprocal transaction
      to enable undo's. In principle, we can also compute the layout subset
      that is effected by the change, and return that in
-     Transation::affectedArea, but for now we just pretend the whole layout is
-     invalidated.
+     Transaction::affectedArea, but for now we just pretend the whole layout
+     is invalidated.
 
      There are nasty corner cases, especially with regard to the placement of
      the selection tail. They might not all be worked out yet.

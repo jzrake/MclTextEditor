@@ -23,7 +23,7 @@ namespace mcl {
     class CaretComponent;     // draws the caret symbol(s)
     class GutterComponent;    // draws the gutter
     class HighlightComponent; // draws the highlight region(s)
-    class RectanglePatchList; // encapuslates traversal of a highlight boundary
+    class SelectionOutliner;  // encapuslates traversal of a highlight boundary
     class Selection;          // stores leading and trailing edges of an editing region
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;         // is a component, issues actions, computes view transform
@@ -198,23 +198,22 @@ private:
 /**
  A class that computes the boundary of a collection of rectanglular patches, and
  can return it as a path or as a list of lines.
- 
- NOTE: getOutlinePath only draws a path around a simply connected region.
- If the boundary contains disconnected regions, getListOfBoundaryLines will
- provide the correct list of lines, but the path calculation will stop once
- it intersects itself.
  */
-class mcl::RectanglePatchList
+class mcl::SelectionOutliner
 {
 public:
-    RectanglePatchList (const juce::Array<juce::Rectangle<float>>& rectangles);
+    SelectionOutliner (const juce::Array<juce::Rectangle<float>>& rectangles);
     bool checkIfRectangleFallsInBin (int rectangleIndex, int binIndexI, int binIndexJ) const;
     bool isBinOccupied (int binIndexI, int binIndexJ) const;
     juce::Array<bool> getOccupationMatrix() const;
     juce::Rectangle<float> getGridPatch (int binIndexI, int binIndexJ) const;
+    juce::Array<juce::Rectangle<float>> getGridPatches() const;
     juce::Array<juce::Line<float>> getListOfBoundaryLines() const;
+    juce::Array<juce::Point<float>> getBoundaryTraversingPoints() const;
     juce::Path getOutlinePath() const;
-    
+
+    static void addRectanglesToMakeContiguous (juce::Array<juce::Rectangle<float>>&);
+
 private:
     static juce::Array<float> uniqueValuesOfSortedArray (const juce::Array<float>& X);
     static juce::Array<float> getUniqueCoordinatesX (const juce::Array<juce::Rectangle<float>>& rectangles);
