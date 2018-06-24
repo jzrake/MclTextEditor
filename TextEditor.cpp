@@ -708,29 +708,29 @@ juce::juce_wchar mcl::TextLayout::getCharacter (juce::Point<int> index) const
 Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, bool fixingTail) const
 {
     auto S = selections;
-    auto shrunken = fixingTail
-    ? [] (Array<Selection> S) { return S; }
-    : [] (Array<Selection> S)
+
+    auto post = [fixingTail] (auto& T)
     {
-        for (auto& s : S)
-            s.tail = s.head;
-        return S;
+        if (! fixingTail)
+            for (auto& s : T)
+                s.tail = s.head;
+        return T;
     };
 
     switch (navigation)
     {
         case Navigation::identity: return S;
-        case Navigation::wholeDocument : for (auto& s : S) { s.head = { 0, 0 }; s.tail = getLast(); } return shrunken (S);
-        case Navigation::wholeLine     : for (auto& s : S) { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return shrunken (S);
-        case Navigation::wholeWord     : for (auto& s : S) { prevWord (s.head); nextWord (s.tail); } return shrunken (S);
-        case Navigation::forwardByChar : for (auto& s : S) next (s.head); return shrunken (S);
-        case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return shrunken (S);
-        case Navigation::forwardByWord : for (auto& s : S) nextWord (s.head); return shrunken (S);
-        case Navigation::backwardByWord: for (auto& s : S) prevWord (s.head); return shrunken (S);
-        case Navigation::forwardByLine : for (auto& s : S) nextRow (s.head); return shrunken (S);
-        case Navigation::backwardByLine: for (auto& s : S) prevRow (s.head); return shrunken (S);
-        case Navigation::toLineStart   : for (auto& s : S) s.head.y = 0; return shrunken (S);
-        case Navigation::toLineEnd     : for (auto& s : S) s.head.y = getNumColumns (s.head.x); return shrunken (S);
+        case Navigation::wholeDocument : for (auto& s : S) { s.head = { 0, 0 }; s.tail = getLast(); } return post (S);
+        case Navigation::wholeLine     : for (auto& s : S) { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return post (S);
+        case Navigation::wholeWord     : for (auto& s : S) { prevWord (s.head); nextWord (s.tail); } return post (S);
+        case Navigation::forwardByChar : for (auto& s : S) next (s.head); return post (S);
+        case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return post (S);
+        case Navigation::forwardByWord : for (auto& s : S) nextWord (s.head); return post (S);
+        case Navigation::backwardByWord: for (auto& s : S) prevWord (s.head); return post (S);
+        case Navigation::forwardByLine : for (auto& s : S) nextRow (s.head); return post (S);
+        case Navigation::backwardByLine: for (auto& s : S) prevRow (s.head); return post (S);
+        case Navigation::toLineStart   : for (auto& s : S) s.head.y = 0; return post (S);
+        case Navigation::toLineEnd     : for (auto& s : S) s.head.y = getNumColumns (s.head.x); return post (S);
     }
 }
 
