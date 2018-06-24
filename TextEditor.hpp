@@ -54,6 +54,11 @@ struct mcl::Selection
     Selection (juce::Point<int> head, juce::Point<int> tail) : head (head), tail (tail) {}
     Selection (int r0, int c0, int r1, int c1) : head (r0, c0), tail (r1, c1) {}
 
+    /** Construct a selection whose head is at (0, 0), and whose tail is at the end of
+        the given content string, which may span multiple lines.
+     */
+    Selection (const juce::String& content);
+
     bool operator== (const Selection& other) const
     {
         return head == other.head && tail == other.tail;
@@ -84,11 +89,46 @@ struct mcl::Selection
     /** Return a copy of this selection, oriented so that head <= tail. */
     Selection oriented() const;
 
+    /** Return a copy of this selection, with its head and tail swapped. */
+    Selection swapped() const;
+
     /** Return a copy of this selection, with head and tail at the beginning and end
         of their respective lines if the selection is oriented, or otherwise with
         the head and tail at the end and beginning of their respective lines.
      */
     Selection horizontallyMaximized (const TextLayout& layout) const;
+
+    /** Return a copy of this selection, with its tail (if oriented) moved to
+        account for the shape of the given content, which may span multiple
+        lines. If instead head > tail, then the head is bumped forward.
+     */
+    Selection measuring (const juce::String& content) const;
+
+    /** Return a copy of this selection, with its head (if oriented) placed
+        at the given index, and tail moved as to leave the measure the same.
+        If instead head > tail, then the tail is moved.
+     */
+    Selection startingFrom (juce::Point<int> index) const;
+
+    /** Modify this selection (if necessary) to account for the disapearance of a
+        selection someplace else.
+     */
+    void pulledBy (Selection disappearingSelection);
+
+    /** Modify this selection (if necessary) to account for the appearance of a
+        selection someplace else.
+     */
+    void pushedBy (Selection appearingSelection);
+
+    /** Modify an index (if necessary) to account for the disapearance of
+        this selection.
+     */
+    void pull (juce::Point<int>& index) const;
+
+    /** Modify an index (if necessary) to account for the appearance of
+        this selection.
+     */
+    void push (juce::Point<int>& index) const;
 
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail

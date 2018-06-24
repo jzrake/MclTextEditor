@@ -170,7 +170,7 @@ juce::GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool 
 
     GlyphArrangement glyphs;
     glyphs.addLineOfText (layout.getFont().withHeight (12.f),
-                          String (row),
+                          String (row + 1),
                           8.f, layout.getVerticalPosition (row, TextLayout::Metric::baseline));
     return glyphs;
 }
@@ -256,6 +256,20 @@ Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rec
 
 
 //==============================================================================
+mcl::Selection::Selection (const juce::String& content)
+{
+    int rowSpan = 0;
+    auto c = content.getCharPointer();
+
+    for (int n = 0; n < content.length(); ++n)
+    {
+        rowSpan += c[n] == '\n';
+    }
+
+    head = { 0, 0 };
+    tail = { rowSpan, content.length() - (rowSpan > 0 ? content.lastIndexOfChar ('\n') : 0) };
+}
+
 bool mcl::Selection::isOriented() const
 {
     return ! (head.x > tail.x || (head.x == tail.x && head.y > tail.y));
@@ -263,11 +277,16 @@ bool mcl::Selection::isOriented() const
 
 mcl::Selection mcl::Selection::oriented() const
 {
-    Selection s = *this;
-
     if (! isOriented())
-        std::swap (s.head, s.tail);
+        return swapped();
 
+    return *this;
+}
+
+mcl::Selection mcl::Selection::swapped() const
+{
+    Selection s = *this;
+    std::swap (s.head, s.tail);
     return s;
 }
 
@@ -286,6 +305,112 @@ mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) 
         s.tail.y = 0;
     }
     return s;
+}
+
+mcl::Selection mcl::Selection::measuring (const juce::String& content) const
+{
+    Selection s (content);
+
+    if (isOriented())
+    {
+        return Selection (content).startingFrom (head);
+    }
+    else
+    {
+        return Selection (content).startingFrom (tail).swapped();
+    }
+}
+
+mcl::Selection mcl::Selection::startingFrom (juce::Point<int> index) const
+{
+    Selection s = *this;
+
+    /*
+     Pull the whole selection back to the origin.
+     */
+    s.pulledBy (Selection ({}, isOriented() ? head : tail));
+
+    /*
+     Then push it forward to the given index.
+     */
+    s.pushedBy (Selection ({}, index));
+
+    return s;
+}
+
+void mcl::Selection::pulledBy (Selection disappearingSelection)
+{
+    disappearingSelection.pull (head);
+    disappearingSelection.pull (tail);
+}
+
+void mcl::Selection::pushedBy (Selection appearingSelection)
+{
+    appearingSelection.push (head);
+    appearingSelection.push (tail);
+}
+
+void mcl::Selection::pull (juce::Point<int>& index) const
+{
+    const auto S = oriented();
+
+    /*
+     If the selection tail is on index's row, then shift its column back,
+     either by the difference between our head and tail column indexes if
+     our head and tail are on the same row, or otherwise by our tail's
+     column index.
+     */
+    if (S.tail.x == index.x)
+    {
+        if (S.head.x == S.tail.x)
+        {
+            index.y -= S.tail.y - S.head.y;
+        }
+        else
+        {
+            index.y -= S.tail.y;
+        }
+    }
+
+    /*
+     If this selection starts on the same row or an earlier one,
+     then shift the row index back by our row span.
+     */
+    if (S.head.x <= index.x)
+    {
+        index.x -= S.tail.x - S.head.x;
+    }
+}
+
+void mcl::Selection::push (juce::Point<int>& index) const
+{
+    const auto S = oriented();
+
+    /*
+     If our head is on index's row, then shift its column forward, either
+     by our head to tail distance if our head and tail are on the
+     same row, or otherwise by our tail's column index.
+     */
+    if (S.head.x == index.x)
+    {
+        if (S.head.x == S.tail.x)
+        {
+            index.y += S.tail.y - S.head.y;
+        }
+        else
+        {
+            index.y += S.tail.y;
+        }
+    }
+
+    /*
+     If this selection starts on the same row or an earlier one,
+     then shift the row index forward by our row span.
+     */
+    if (S.head.x <= index.x)
+    {
+        index.x += S.tail.x - S.head.x;
+    }
 }
 
 
@@ -563,12 +688,13 @@ bool mcl::TextLayout::prevWord (juce::Point<int>& index) const
         while (prev (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
 
     while (prev (index))
+    {
         if (CharacterFunctions::isWhitespace (getCharacter (index)))
         {
             next (index);
             return true;
         }
-
+    }
     return false;
 }
 
@@ -675,18 +801,12 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
         lines.insert (row++, line);
     }
 
-    /*
-     Computing the post selection tail column is not self-explanatory...
-     I'm not gonna explain it here either.
-     */
-    int lengthOfFinalContentLine = t.content.length() - jmax (0, t.content.lastIndexOf ("\n"));
-    int finalTailColumn  = t.content == "\n" ? 0 : lengthOfFinalContentLine + s.head.y;
-
     auto inf = std::numeric_limits<float>::max();
     Transaction r;
-    r.selection = Selection (s.head.x, s.head.y, row - 1, finalTailColumn);
+    r.selection = Selection (t.content).startingFrom (s.head);
     r.content = L.substring (i, j);
     r.affectedArea = Rectangle<float> (0, 0, inf, inf);
+
     return r;
 }
 
@@ -767,7 +887,6 @@ mcl::TextEditor::TextEditor()
 , highlight (layout)
 {
     lastTransactionTime = Time::getApproximateMillisecondCounter();
-
     layout.setSelections ({ Selection() });
 
     setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
@@ -984,6 +1103,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         auto callback = [this] (const Transaction& r)
         {
             layout.setSelections ({ Selection (r.selection.tail) });
+            // layout.setSelections ({ Selection (r.selection) });
             updateSelections();
 
             if (! r.affectedArea.isEmpty())
