@@ -43,8 +43,7 @@ void mcl::CaretComponent::updateSelections()
 
 void mcl::CaretComponent::paint (Graphics& g)
 {
-    // g.addTransform (transform);
-    g.setColour (Colours::blue.withAlpha (squareWave (phase)));
+    g.setColour (getParentComponent()->findColour (juce::CaretComponent::caretColourId).withAlpha (squareWave (phase)));
 
     for (const auto &r : getCaretRectangles())
         g.fillRect (r);
@@ -111,20 +110,23 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
      Draw the gutter background, shadow, and outline
      ------------------------------------------------------------------
      */
-    g.setColour (Colours::whitesmoke);
+    auto bg = getParentComponent()->findColour (CodeEditorComponent::backgroundColourId);
+    auto ln = bg.overlaidWith (getParentComponent()->findColour (CodeEditorComponent::lineNumberBackgroundId));
+
+    g.setColour (ln);
     g.fillRect (getLocalBounds().removeFromLeft (GUTTER_WIDTH));
 
-    if (Point<float>().transformedBy (transform).getX() < GUTTER_WIDTH)
+    if (transform.getTranslationX() < GUTTER_WIDTH)
     {
-        auto shadowRect = getLocalBounds().withLeft (GUTTER_WIDTH).withWidth (10);
-        auto gradient = ColourGradient::horizontal (Colours::black.withAlpha (0.2f),
+        auto shadowRect = getLocalBounds().withLeft (GUTTER_WIDTH).withWidth (12);
+        auto gradient = ColourGradient::horizontal (ln.contrasting().withAlpha (0.3f),
                                                     Colours::transparentBlack, shadowRect);
         g.setFillType (gradient);
         g.fillRect (shadowRect);
     }
     else
     {
-        g.setColour (Colours::whitesmoke.darker (0.1f));
+        g.setColour (ln.darker (0.2f));
         g.drawVerticalLine (GUTTER_WIDTH - 1.f, 0.f, getHeight());
     }
 
@@ -148,11 +150,11 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
 
         if (r.isRowSelected)
         {
-            g.setColour (Colours::whitesmoke.darker (0.1f));
+            g.setColour (ln.contrasting (0.1f));
             g.fillRect (A);
         }
 
-        g.setColour (Colours::grey);
+        g.setColour (getParentComponent()->findColour (CodeEditorComponent::lineNumberTextId));
         getLineNumberGlyphs (r.rowNumber, true).draw (g, verticalTransform);
     }
 
@@ -210,7 +212,9 @@ void mcl::HighlightComponent::updateSelections()
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
     g.addTransform (transform);
+
     auto clip = g.getClipBounds().toFloat();
+    auto highlight = getParentComponent()->findColour (CodeEditorComponent::highlightColourId);
 
     if (useRoundedHighlight)
     {
@@ -219,16 +223,16 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
             auto region = layout.getSelectionRegion (s, clip);
             auto p = getOutlinePath (region);
 
-            g.setColour (Colours::black.withAlpha (0.2f));
+            g.setColour (highlight);
             g.fillPath (p);
 
-            g.setColour (Colours::black.withAlpha (0.3f));
+            g.setColour (highlight.darker());
             g.strokePath (p, PathStrokeType (1.f));
         }
     }
     else
     {
-        g.setColour (Colours::black.withAlpha (0.2f));
+        g.setColour (highlight);
 
         for (const auto& s : layout.getSelections())
         {
@@ -999,8 +1003,8 @@ void mcl::TextEditor::resized()
 
 void mcl::TextEditor::paint (Graphics& g)
 {
-    g.fillAll (Colours::white);
-    g.setColour (Colours::black);
+    g.fillAll (findColour (CodeEditorComponent::backgroundColourId));
+    g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
 
     // auto start = Time::getMillisecondCounterHiRes();
 
