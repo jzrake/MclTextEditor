@@ -259,15 +259,20 @@ Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rec
 mcl::Selection::Selection (const juce::String& content)
 {
     int rowSpan = 0;
+    int lastLineStart = 0;
     auto c = content.getCharPointer();
 
     for (int n = 0; n < content.length(); ++n)
     {
-        rowSpan += c[n] == '\n';
+        if (c[n] == '\n')
+        {
+            ++rowSpan;
+            lastLineStart = n + 1;
+        }
     }
 
     head = { 0, 0 };
-    tail = { rowSpan, content.length() - (rowSpan > 0 ? content.lastIndexOfChar ('\n') : 0) };
+    tail = { rowSpan, content.length() - lastLineStart };
 }
 
 bool mcl::Selection::isOriented() const
@@ -738,7 +743,7 @@ String mcl::TextLayout::getSelectionContent (Selection s) const
 {
     s = s.oriented();
 
-    if (s.head.x == s.tail.x)
+    if (s.isSingleLine())
     {
         return lines[s.head.x].substring (s.head.y, s.tail.y);
     }
@@ -757,30 +762,7 @@ String mcl::TextLayout::getSelectionContent (Selection s) const
 
 mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 {
-    cachedBounds = Rectangle<float>(); // invalidate the bounds
-
-    /*
-     This is the main algorithm for implementing transactions. The strategy is
-     to pop the text from the affected lines, replace the part of it between
-     the selection head and tail, and then insert the resulting content one
-     line at a time. The head and tail of the target selection, transformed to
-     account for the new content, are returned in the reciprocal transaction
-     to enable undo's. In principle, we can also compute the layout subset
-     that is effected by the change, and return that in
-     Transaction::affectedArea, but for now we just pretend the whole layout
-     is invalidated.
-
-     There are nasty corner cases, especially with regard to the placement of
-     the selection tail. They might not all be worked out yet.
-
-     Here is a summary of the steps:
-
-     1. Get the content on the affected rows as a single string L.
-     2. Compute the linear start index i = s.head.y
-     3. Compute the linear end index j = L.lastIndexOf ("\n") + s.tail.y + 1.
-     4. Replace L between i and j with content.
-     5. Replace the affected lines of text.
-     */
+    cachedBounds = {}; // invalidate the bounds
 
     const auto t = transaction.accountingForSpecialCharacters (*this);
     const auto s = t.selection.oriented();
@@ -801,11 +783,14 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
         lines.insert (row++, line);
     }
 
+    using D = Transaction::Direction;
     auto inf = std::numeric_limits<float>::max();
+
     Transaction r;
     r.selection = Selection (t.content).startingFrom (s.head);
     r.content = L.substring (i, j);
     r.affectedArea = Rectangle<float> (0, 0, inf, inf);
+    r.direction = t.direction == D::forward ? D::reverse : D::forward;
 
     return r;
 }
@@ -1001,7 +986,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     }
     if (! e.mods.isCommandDown() || ! TEST_MULTI_CARET_EDITING)
     {
-        selections.clearQuick();
+        selections.clear();
     }
 
     selections.add (index);
@@ -1102,8 +1087,11 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
         auto callback = [this] (const Transaction& r)
         {
-            layout.setSelections ({ Selection (r.selection.tail) });
-            // layout.setSelections ({ Selection (r.selection) });
+            switch (r.direction) // NB: switching on the direction of the reciprocal here
+            {
+                case Transaction::Direction::forward: layout.setSelections ({ r.selection }); break;
+                case Transaction::Direction::reverse: layout.setSelections ({ r.selection.tail }); break;
+            }
             updateSelections();
 
             if (! r.affectedArea.isEmpty())

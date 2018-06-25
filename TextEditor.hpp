@@ -141,6 +141,7 @@ struct mcl::Selection
 struct mcl::Transaction
 {
     using Callback = std::function<void(const Transaction&)>;
+    enum class Direction { forward, reverse };
 
     /** Return a copy of this transaction, corrected for delete and backspace
         characters. For example, if content == "\b" then the selection head is
@@ -157,79 +158,10 @@ struct mcl::Transaction
     mcl::Selection selection;
     juce::String content;
     juce::Rectangle<float> affectedArea;
+    Direction direction = Direction::forward;
 
 private:
     class Undoable;
-};
-
-
-
-
-//==============================================================================
-class mcl::CaretComponent : public juce::Component, private juce::Timer
-{
-public:
-    CaretComponent (const TextLayout& layout);
-    void setViewTransform (const juce::AffineTransform& transformToUse);
-    void updateSelections();
-
-    //==========================================================================
-    void paint (juce::Graphics& g) override;
-
-private:
-    //==========================================================================
-    float squareWave (float wt) const;
-    void timerCallback() override;
-    //==========================================================================
-    float phase = 0.f;
-    const TextLayout& layout;
-    juce::AffineTransform transform;
-};
-
-
-
-
-//==============================================================================
-class mcl::GutterComponent : public juce::Component
-{
-public:
-    GutterComponent (const TextLayout& layout);
-    void setViewTransform (const juce::AffineTransform& transformToUse);
-    void updateSelections();
-    void cacheLineNumberGlyphs (int cacheSize=1000);
-
-    //==========================================================================
-    void paint (juce::Graphics& g) override;
-
-private:
-    juce::GlyphArrangement getLineNumberGlyphs (int row, bool useCached) const;
-    //==========================================================================
-    const TextLayout& layout;
-    juce::AffineTransform transform;
-    juce::Array<juce::GlyphArrangement> lineNumberGlyphsCache;
-};
-
-
-
-
-//==============================================================================
-class mcl::HighlightComponent : public juce::Component
-{
-public:
-    HighlightComponent (const TextLayout& layout);
-    void setViewTransform (const juce::AffineTransform& transformToUse);
-    void updateSelections();
-    
-    //==========================================================================
-    void paint (juce::Graphics& g) override;
-
-private:
-    static juce::Path getOutlinePath (const juce::Array<juce::Rectangle<float>>& rectangles);
-
-    //==========================================================================
-    bool useRoundedHighlight = true;
-    const TextLayout& layout;
-    juce::AffineTransform transform;
 };
 
 
@@ -375,6 +307,76 @@ private:
     juce::Font font;
     juce::StringArray lines;
     juce::Array<Selection> selections;
+};
+
+
+
+
+//==============================================================================
+class mcl::CaretComponent : public juce::Component, private juce::Timer
+{
+public:
+    CaretComponent (const TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transformToUse);
+    void updateSelections();
+
+    //==========================================================================
+    void paint (juce::Graphics& g) override;
+
+private:
+    //==========================================================================
+    float squareWave (float wt) const;
+    void timerCallback() override;
+    //==========================================================================
+    float phase = 0.f;
+    const TextLayout& layout;
+    juce::AffineTransform transform;
+};
+
+
+
+
+//==============================================================================
+class mcl::GutterComponent : public juce::Component
+{
+public:
+    GutterComponent (const TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transformToUse);
+    void updateSelections();
+    void cacheLineNumberGlyphs (int cacheSize=1000);
+
+    //==========================================================================
+    void paint (juce::Graphics& g) override;
+
+private:
+    juce::GlyphArrangement getLineNumberGlyphs (int row, bool useCached) const;
+    //==========================================================================
+    const TextLayout& layout;
+    juce::AffineTransform transform;
+    juce::Array<juce::GlyphArrangement> lineNumberGlyphsCache;
+};
+
+
+
+
+//==============================================================================
+class mcl::HighlightComponent : public juce::Component
+{
+public:
+    HighlightComponent (const TextLayout& layout);
+    void setViewTransform (const juce::AffineTransform& transformToUse);
+    void updateSelections();
+
+    //==========================================================================
+    void paint (juce::Graphics& g) override;
+
+private:
+    static juce::Path getOutlinePath (const juce::Array<juce::Rectangle<float>>& rectangles);
+
+    //==========================================================================
+    bool useRoundedHighlight = true;
+    const TextLayout& layout;
+    juce::AffineTransform transform;
 };
 
 
