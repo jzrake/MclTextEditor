@@ -616,8 +616,8 @@ juce::Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (juc
         }
         else // faster
         {
-            data.bounds.setY      (getVerticalPosition(n, Metric::top));
-            data.bounds.setBottom (getVerticalPosition(n, Metric::bottom));
+            data.bounds.setY      (getVerticalPosition (n, Metric::top));
+            data.bounds.setBottom (getVerticalPosition (n, Metric::bottom));
         }
 
         for (const auto& s : selections)
@@ -858,6 +858,100 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 
 
 //==============================================================================
+#include <regex>
+
+class mcl::Scanner::Pattern
+{
+public:
+
+    struct Result
+    {
+        Result (const juce::String& string) : tokenStart (string.length()) {}
+        int tokenStart;
+        int tokenEnd;
+        Identifier token;
+    };
+
+    Pattern (const juce::Identifier& identifier, const String& pattern)
+    : identifier (identifier)
+    , r (pattern.toRawUTF8())
+    {
+    }
+
+    std::pair<int, int> search (const String& target, int start) const
+    {
+        auto m = std::cmatch();
+
+        if (std::regex_search (target.toRawUTF8() + start, m, r))
+        {
+            return std::make_pair (start + int (m.position()),
+                                   start + int (m.position() + m.length()));
+        }
+        return std::make_pair (-1, -1);
+    }
+
+    static Result searchMany (const Array<std::unique_ptr<Pattern>>& patterns,
+                              const String& target,
+                              int start)
+    {
+        auto bestPatternSoFar = Result (target);
+
+        for (const auto& pattern : patterns)
+        {
+            auto result = pattern->search (target, start);
+
+            if (0 <= result.first && result.first < bestPatternSoFar.tokenStart)
+            {
+                bestPatternSoFar.tokenStart = result.first;
+                bestPatternSoFar.tokenEnd = result.second;
+                bestPatternSoFar.token = pattern->identifier;
+            }
+        }
+        return bestPatternSoFar;
+    }
+private:
+    friend class Scanner;
+    juce::Identifier identifier;
+    std::regex r;
+};
+
+
+
+
+//==============================================================================
+mcl::Scanner::Scanner (const TextLayout& layout) : layout (layout)
+{
+}
+
+void mcl::Scanner::addPattern (const juce::Identifier& identifier, const String& pattern)
+{
+    patterns.add (std::make_unique<Pattern> (identifier, pattern));
+}
+
+bool mcl::Scanner::next()
+{
+    while (index.x < layout.getNumRows())
+    {
+        auto result = Pattern::searchMany (patterns, layout.getLine (index.x), index.y);
+        
+        if (result.token.isValid())
+        {
+            tokenIndex = { index.x, result.tokenStart };
+            token = result.token;
+            index.y = result.tokenEnd;
+            return true;
+        }
+
+        index.x += 1; // we're at the end of the line
+        index.y = 0;
+    }
+    return false;
+}
+
+
+
+
+//==============================================================================
 class mcl::Transaction::Undoable : public juce::UndoableAction
 {
 public:
@@ -926,12 +1020,16 @@ juce::UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callbac
 
 //==============================================================================
 mcl::TextEditor::TextEditor()
-: caret (layout)
+: scanner (layout)
+, caret (layout)
 , gutter (layout)
 , highlight (layout)
 {
     lastTransactionTime = Time::getApproximateMillisecondCounter();
     layout.setSelections ({ Selection() });
+
+    scanner.addPattern (Identifier ("class"), "class");
+    scanner.addPattern (Identifier ("struct"), "struct");
 
     setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
 
@@ -1218,6 +1316,19 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key.isKeyCode (KeyPress::returnKey))                       return insert ("\n");
     if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
 
+
+
+    if (key == KeyPress ('c', ModifierKeys::ctrlModifier, 0))
+    {
+        scanner.reset();
+
+        DBG("Scanning tokens ------------------------------");
+
+        while (scanner.next())
+        {
+            DBG (scanner.getToken().toString() << " at " << scanner.getIndex().toString());
+        }
+    }
     return false;
 }
 

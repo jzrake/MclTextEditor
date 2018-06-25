@@ -23,11 +23,34 @@ namespace mcl {
     class CaretComponent;     // draws the caret symbol(s)
     class GutterComponent;    // draws the gutter
     class HighlightComponent; // draws the highlight region(s)
+    class Scanner;            // matches a collection of regex's in the content
     class Selection;          // stores leading and trailing edges of an editing region
     class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;         // is a component, issues actions, computes view transform
     class Transaction;        // a text replacement, the layout computes the inverse on fulfilling it
 }
+
+
+
+
+//==============================================================================
+class mcl::Scanner
+{
+public:
+    Scanner (const TextLayout& layout);
+    void addPattern (const juce::Identifier& identifier, const juce::String& pattern);
+    void reset() { index = {0, 0}; tokenIndex = {0, 0}; token = juce::Identifier(); }
+    bool next();
+    const juce::Identifier& getToken() const { return token; }
+    const juce::Point<int>& getIndex() const { return tokenIndex; }
+private:   
+    class Pattern;
+    const TextLayout& layout;
+    juce::Identifier token;
+    juce::Point<int> index;
+    juce::Point<int> tokenIndex;
+    juce::Array<std::unique_ptr<Pattern>> patterns;
+};
 
 
 
@@ -305,6 +328,9 @@ public:
     /** Return the number of active selections. */
     int getNumSelections() const { return selections.size(); }
 
+    /** Return a line in the layout. */
+    const juce::String& getLine (int lineIndex) const { return lines[lineIndex]; }
+
     /** Return one of the current selections, possibly operated on. */
     Selection getSelection (int index,
                             Navigation navigation=Navigation::identity,
@@ -438,6 +464,7 @@ private:
     double lastTransactionTime;
     bool tabKeyUsed = true;
     TextLayout layout;
+    Scanner scanner; // Experimental
     CaretComponent caret;
     GutterComponent gutter;
     HighlightComponent highlight;
