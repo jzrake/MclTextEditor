@@ -199,13 +199,20 @@ public:
         juce::Rectangle<float> bounds;
     };
 
+    /** Get the current font. */
     juce::Font getFont() const { return font; }
 
+    /** Set the font to be applied to all text. */
     void setFont (juce::Font fontToUse) { font = fontToUse; }
 
+    /** Replace the whole layout content. */
     void replaceAll (const juce::String& content);
 
+    /** Replace the list of selections with a new one. */
     void setSelections (const juce::Array<Selection>& newSelections) { selections = newSelections; }
+
+    /** Replace the selection at the given index. The index must be in range. */
+    void setSelection (int index, Selection newSelection) { selections.setUnchecked (index, newSelection); }
 
     /** Get the number of rows in the layout. */
     int getNumRows() const;
@@ -246,10 +253,12 @@ public:
     juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
 
     /** Return a glyph arrangement for the given row. */
-    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false, bool useCached=true) const;
+    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false) const;
     
-    /** Return glyphs whose bounding boxes intersect the given area. */
-    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area) const;
+    /** Return all glyphs whose bounding boxes intersect the given area. This method
+        may be generous (including glyphs that don't intersect) unless strict is true.
+     */
+    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, bool strict=false) const;
 
     /** Return data on the rows intersecting the given area. This is sort
         of a convenience method for calling getBoundsOnRow() over a range,
@@ -290,6 +299,12 @@ public:
     /** Return the character at the given index. */
     juce::juce_wchar getCharacter (juce::Point<int> index) const;
 
+    /** Return the number of active selections. */
+    int getNumSelections() const { return selections.size(); }
+
+    /** Return one of the current selections. */
+    Selection getSelection (int index) const { return selections[index]; }
+
     /** Return the current selection state, possibly operated on. */
     juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity, bool fixingTail=false) const;
 
@@ -298,7 +313,9 @@ public:
      */
     juce::String getSelectionContent (Selection selection) const;
 
-    /** Apply a transaction to the layout, and return its reciprocal. */
+    /** Apply a transaction to the layout, and return its reciprocal. The selection
+        identified in the transaction does not need to exist in the layout.
+     */
     Transaction fulfill (const Transaction& transaction);
 
 private:
@@ -327,6 +344,7 @@ private:
     //==========================================================================
     float squareWave (float wt) const;
     void timerCallback() override;
+    juce::Array<juce::Rectangle<float>> getCaretRectangles() const;
     //==========================================================================
     float phase = 0.f;
     const TextLayout& layout;

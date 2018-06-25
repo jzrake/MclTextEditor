@@ -43,17 +43,11 @@ void mcl::CaretComponent::updateSelections()
 
 void mcl::CaretComponent::paint (Graphics& g)
 {
-    g.addTransform (transform);
+    // g.addTransform (transform);
     g.setColour (Colours::blue.withAlpha (squareWave (phase)));
 
-    for (const auto& selection : layout.getSelections())
-    {
-        auto b = layout.getGlyphBounds (selection.head)
-            .removeFromLeft (CURSOR_WIDTH)
-            .translated (selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
-            .expanded (0.f, 1.f);
-        g.fillRect (b);
-    }
+    for (const auto &r : getCaretRectangles())
+        g.fillRect (r);
 }
 
 float mcl::CaretComponent::squareWave (float wt) const
@@ -66,7 +60,25 @@ float mcl::CaretComponent::squareWave (float wt) const
 void mcl::CaretComponent::timerCallback()
 {
     phase += 3.2e-1;
-    repaint();
+
+    for (const auto &r : getCaretRectangles())
+        repaint (r.getSmallestIntegerContainer());
+}
+
+Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
+{
+    juce::Array<juce::Rectangle<float>> rectangles;
+
+    for (const auto& selection : layout.getSelections())
+    {
+        rectangles.add (layout
+                        .getGlyphBounds (selection.head)
+                        .removeFromLeft (CURSOR_WIDTH)
+                        .translated (selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
+                        .transformedBy (transform)
+                        .expanded (0.f, 1.f));
+    }
+    return rectangles;
 }
 
 
@@ -527,7 +539,7 @@ Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace, bool useCached) const
+GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
 {
     GlyphArrangement glyphs;
 
@@ -542,7 +554,7 @@ GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpa
     return glyphs;
 }
 
-GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area) const
+GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area, bool strict) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
@@ -552,6 +564,17 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area)
     for (int n = row0; n <= row1; ++n)
     {
         glyphs.addGlyphArrangement (getGlyphsForRow (n));
+    }
+
+    if (strict)
+    {
+        for (int n = 0; n < glyphs.getNumGlyphs(); ++n)
+        {
+            if (! glyphs.getBoundingBox (n, 1, true).intersects (area))
+            {
+                glyphs.removeRangeOfGlyphs (n--, 1);
+            }
+        }
     }
     return glyphs;
 }
@@ -1082,25 +1105,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
     auto insert = [this] (String insertion)
     {
-        Transaction t;
-        t.content = insertion;
-        t.selection = layout.getSelections().getFirst();
-
-        auto callback = [this] (const Transaction& r)
-        {
-            switch (r.direction) // NB: switching on the direction of the reciprocal here
-            {
-                case Transaction::Direction::forward: layout.setSelections ({ r.selection }); break;
-                case Transaction::Direction::reverse: layout.setSelections ({ r.selection.tail }); break;
-            }
-            updateSelections();
-
-            if (! r.affectedArea.isEmpty())
-            {
-                repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
-            }
-        };
-
         double now = Time::getApproximateMillisecondCounter();
 
         if (now > lastTransactionTime + 400)
@@ -1108,7 +1112,30 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
             lastTransactionTime = Time::getApproximateMillisecondCounter();
             undo.beginNewTransaction();
         }
-        return undo.perform (t.on (layout, callback));
+
+        for (int n = 0; n < layout.getNumSelections(); ++n)
+        {
+            Transaction t;
+            t.content = insertion;
+            t.selection = layout.getSelection (n);
+
+            auto callback = [this, n] (const Transaction& r)
+            {
+                switch (r.direction) // NB: switching on the direction of the reciprocal here
+                {
+                    case Transaction::Direction::forward: layout.setSelection (n, r.selection); break;
+                    case Transaction::Direction::reverse: layout.setSelection (n, r.selection.tail); break;
+                }
+
+                if (! r.affectedArea.isEmpty())
+                {
+                    repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
+                }
+            };
+            undo.perform (t.on (layout, callback));
+        }
+        updateSelections();
+        return true;
     };
 
     bool isTab = tabKeyUsed && (key.getTextCharacter() == '\t');
