@@ -259,16 +259,17 @@ Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rec
 mcl::Selection::Selection (const juce::String& content)
 {
     int rowSpan = 0;
-    int lastLineStart = 0;
+    int n = 0, lastLineStart = 0;
     auto c = content.getCharPointer();
 
-    for (int n = 0; n < content.length(); ++n)
+    while (*c != '\0')
     {
-        if (c[n] == '\n')
+        if (*c == '\n')
         {
             ++rowSpan;
             lastLineStart = n + 1;
         }
+        ++c; ++n;
     }
 
     head = { 0, 0 };
