@@ -17,7 +17,7 @@ using namespace juce;
 
 #define GUTTER_WIDTH 48.f
 #define CURSOR_WIDTH 3.f
-#define TEST_MULTI_CARET_EDITING 0
+#define TEST_MULTI_CARET_EDITING 1
 
 
 
@@ -346,23 +346,23 @@ mcl::Selection mcl::Selection::startingFrom (juce::Point<int> index) const
     /*
      Pull the whole selection back to the origin.
      */
-    s.pulledBy (Selection ({}, isOriented() ? head : tail));
+    s.pullBy (Selection ({}, isOriented() ? head : tail));
 
     /*
      Then push it forward to the given index.
      */
-    s.pushedBy (Selection ({}, index));
+    s.pushBy (Selection ({}, index));
 
     return s;
 }
 
-void mcl::Selection::pulledBy (Selection disappearingSelection)
+void mcl::Selection::pullBy (Selection disappearingSelection)
 {
     disappearingSelection.pull (head);
     disappearingSelection.pull (tail);
 }
 
-void mcl::Selection::pushedBy (Selection appearingSelection)
+void mcl::Selection::pushBy (Selection appearingSelection)
 {
     appearingSelection.push (head);
     appearingSelection.push (tail);
@@ -378,7 +378,7 @@ void mcl::Selection::pull (juce::Point<int>& index) const
      our head and tail are on the same row, or otherwise by our tail's
      column index.
      */
-    if (S.tail.x == index.x)
+    if (S.tail.x == index.x && S.head.y <= index.y)
     {
         if (S.head.x == S.tail.x)
         {
@@ -409,7 +409,7 @@ void mcl::Selection::push (juce::Point<int>& index) const
      by our head to tail distance if our head and tail are on the
      same row, or otherwise by our tail's column index.
      */
-    if (S.head.x == index.x)
+    if (S.head.x == index.x && S.head.y <= index.y)
     {
         if (S.head.x == S.tail.x)
         {
@@ -795,6 +795,12 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
     const auto j = L.lastIndexOf ("\n") + s.tail.y + 1;
     const auto M = L.substring (0, i) + t.content + L.substring (j);
 
+    for (auto& existingSelection : selections)
+    {
+        existingSelection.pullBy (s);
+        existingSelection.pushBy (Selection (t.content).startingFrom (s.head));
+    }
+
     lines.removeRange (s.head.x, s.tail.x - s.head.x + 1);
     int row = s.head.x;
 
@@ -1033,9 +1039,13 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     if (e.getNumberOfClicks() == 2)
+    {
         layout.setSelections (layout.getSelections (TextLayout::Navigation::wholeWord, true).getFirst());
+    }
     else if (e.getNumberOfClicks() == 3)
+    {
         layout.setSelections (layout.getSelections (TextLayout::Navigation::wholeLine, true).getFirst());
+    }
     updateSelections();
 }
 

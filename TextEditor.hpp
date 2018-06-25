@@ -113,12 +113,12 @@ struct mcl::Selection
     /** Modify this selection (if necessary) to account for the disapearance of a
         selection someplace else.
      */
-    void pulledBy (Selection disappearingSelection);
+    void pullBy (Selection disappearingSelection);
 
     /** Modify this selection (if necessary) to account for the appearance of a
         selection someplace else.
      */
-    void pushedBy (Selection appearingSelection);
+    void pushBy (Selection appearingSelection);
 
     /** Modify an index (if necessary) to account for the disapearance of
         this selection.
