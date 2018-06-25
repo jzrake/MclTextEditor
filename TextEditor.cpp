@@ -214,14 +214,17 @@ void mcl::HighlightComponent::paint (juce::Graphics& g)
 
     if (useRoundedHighlight)
     {
-        auto region = layout.getSelectionRegion (layout.getSelections().getFirst(), clip);
-        auto p = getOutlinePath (region);
+        for (const auto& s : layout.getSelections())
+        {
+            auto region = layout.getSelectionRegion (s, clip);
+            auto p = getOutlinePath (region);
 
-        g.setColour (Colours::black.withAlpha (0.2f));
-        g.fillPath (p);
+            g.setColour (Colours::black.withAlpha (0.2f));
+            g.fillPath (p);
 
-        g.setColour (Colours::black.withAlpha (0.3f));
-        g.strokePath (p, PathStrokeType (1.f));
+            g.setColour (Colours::black.withAlpha (0.3f));
+            g.strokePath (p, PathStrokeType (1.f));
+        }
     }
     else
     {
@@ -734,33 +737,44 @@ juce::juce_wchar mcl::TextLayout::getCharacter (juce::Point<int> index) const
     return index.y == lines[index.x].length() ? '\n' : lines[index.x].getCharPointer()[index.y];
 }
 
-Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, bool fixingTail) const
+mcl::Selection mcl::TextLayout::getSelection (int index, Navigation navigation, bool fixingTail) const
 {
-    auto S = selections;
+    auto s = selections[index];
 
     auto post = [fixingTail] (auto& T)
     {
         if (! fixingTail)
-            for (auto& s : T)
-                s.tail = s.head;
+            T.tail = T.head;
         return T;
     };
 
     switch (navigation)
     {
-        case Navigation::identity: return S;
-        case Navigation::wholeDocument : for (auto& s : S) { s.head = { 0, 0 }; s.tail = getLast(); } return post (S);
-        case Navigation::wholeLine     : for (auto& s : S) { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return post (S);
-        case Navigation::wholeWord     : for (auto& s : S) { prevWord (s.head); nextWord (s.tail); } return post (S);
-        case Navigation::forwardByChar : for (auto& s : S) next (s.head); return post (S);
-        case Navigation::backwardByChar: for (auto& s : S) prev (s.head); return post (S);
-        case Navigation::forwardByWord : for (auto& s : S) nextWord (s.head); return post (S);
-        case Navigation::backwardByWord: for (auto& s : S) prevWord (s.head); return post (S);
-        case Navigation::forwardByLine : for (auto& s : S) nextRow (s.head); return post (S);
-        case Navigation::backwardByLine: for (auto& s : S) prevRow (s.head); return post (S);
-        case Navigation::toLineStart   : for (auto& s : S) s.head.y = 0; return post (S);
-        case Navigation::toLineEnd     : for (auto& s : S) s.head.y = getNumColumns (s.head.x); return post (S);
+        case Navigation::identity: return s;
+        case Navigation::wholeDocument : { s.head = { 0, 0 }; s.tail = getLast(); } return post (s);
+        case Navigation::wholeLine     : { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return post (s);
+        case Navigation::wholeWord     : { prevWord (s.head); nextWord (s.tail); } return post (s);
+        case Navigation::forwardByChar : next (s.head); return post (s);
+        case Navigation::backwardByChar: prev (s.head); return post (s);
+        case Navigation::forwardByWord : nextWord (s.head); return post (s);
+        case Navigation::backwardByWord: prevWord (s.head); return post (s);
+        case Navigation::forwardByLine : nextRow (s.head); return post (s);
+        case Navigation::backwardByLine: prevRow (s.head); return post (s);
+        case Navigation::toLineStart   : s.head.y = 0; return post (s);
+        case Navigation::toLineEnd     : s.head.y = getNumColumns (s.head.x); return post (s);
     }
+}
+
+Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, bool fixingTail) const
+{
+    auto resultingSelections = Array<Selection>();
+    resultingSelections.ensureStorageAllocated (getNumSelections());
+
+    for (int n = 0; n < getNumSelections(); ++n)
+    {
+        resultingSelections.add (getSelection (n, navigation, fixingTail));
+    }
+    return resultingSelections;
 }
 
 String mcl::TextLayout::getSelectionContent (Selection s) const
@@ -1086,7 +1100,26 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     };
 
-    if (key.getModifiers().isShiftDown())
+    auto addCaret = [this] (TextLayout::Navigation navigation)
+    {
+        layout.addSelection (layout.getSelection (layout.getNumSelections() - 1, navigation));
+        updateSelections();
+        return true;
+    };
+
+    if (key.isKeyCode (KeyPress::escapeKey))
+    {
+        layout.setSelections (layout.getSelections().getLast());
+        updateSelections();
+        return true;
+    }
+
+    if (key.getModifiers().isShiftDown() && key.getModifiers().isCtrlDown())
+    {
+        if (key.isKeyCode (KeyPress::upKey  )) return addCaret (Navigation::backwardByLine);
+        if (key.isKeyCode (KeyPress::downKey)) return addCaret (Navigation::forwardByLine);
+    }
+    else if (key.getModifiers().isShiftDown())
     {
         if (key.isKeyCode (KeyPress::rightKey )) return expand (Navigation::forwardByChar);
         if (key.isKeyCode (KeyPress::leftKey  )) return expand (Navigation::backwardByChar);

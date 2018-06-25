@@ -299,14 +299,20 @@ public:
     /** Return the character at the given index. */
     juce::juce_wchar getCharacter (juce::Point<int> index) const;
 
+    /** Add a selection to the list. */
+    void addSelection (Selection selection) { selections.add (selection); }
+
     /** Return the number of active selections. */
     int getNumSelections() const { return selections.size(); }
 
-    /** Return one of the current selections. */
-    Selection getSelection (int index) const { return selections[index]; }
+    /** Return one of the current selections, possibly operated on. */
+    Selection getSelection (int index,
+                            Navigation navigation=Navigation::identity,
+                            bool fixingTail=false) const;
 
     /** Return the current selection state, possibly operated on. */
-    juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity, bool fixingTail=false) const;
+    juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity,
+                                          bool fixingTail=false) const;
 
     /** Return the content within the given selection, with newlines if the
         selection spans muliple lines.
