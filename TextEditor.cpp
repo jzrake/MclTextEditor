@@ -17,7 +17,9 @@ using namespace juce;
 
 #define GUTTER_WIDTH 48.f
 #define CURSOR_WIDTH 3.f
-#define TEST_MULTI_CARET_EDITING 1
+#define TEST_MULTI_CARET_EDITING true
+#define ENABLE_CARET_BLINK true
+#define PROFILE_PAINTS false
 
 
 
@@ -26,7 +28,9 @@ using namespace juce;
 mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
 {
     setInterceptsMouseClicks (false, false);
+#if ENABLE_CARET_BLINK
     startTimerHz (20);
+#endif
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -43,10 +47,18 @@ void mcl::CaretComponent::updateSelections()
 
 void mcl::CaretComponent::paint (Graphics& g)
 {
+#if PROFILE_PAINTS
+    auto start = Time::getMillisecondCounterHiRes();
+#endif
+
     g.setColour (getParentComponent()->findColour (juce::CaretComponent::caretColourId).withAlpha (squareWave (phase)));
 
     for (const auto &r : getCaretRectangles())
         g.fillRect (r);
+
+#if PROFILE_PAINTS
+    std::cout << "[CaretComponent::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
+#endif
 }
 
 float mcl::CaretComponent::squareWave (float wt) const
@@ -102,9 +114,9 @@ void mcl::GutterComponent::updateSelections()
 
 void mcl::GutterComponent::paint (juce::Graphics& g)
 {
-    // double start = Time::getMillisecondCounterHiRes();
-
-    // DBG("A: " << Time::getMillisecondCounterHiRes() - start);
+#if PROFILE_PAINTS
+    auto start = Time::getMillisecondCounterHiRes();
+#endif
 
     /*
      Draw the gutter background, shadow, and outline
@@ -129,9 +141,6 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
         g.setColour (ln.darker (0.2f));
         g.drawVerticalLine (GUTTER_WIDTH - 1.f, 0.f, getHeight());
     }
-
-    // DBG("B: " << Time::getMillisecondCounterHiRes() - start);
-
 
     /*
      Draw the line numbers and selected rows
@@ -158,7 +167,9 @@ void mcl::GutterComponent::paint (juce::Graphics& g)
         getLineNumberGlyphs (r.rowNumber, true).draw (g, verticalTransform);
     }
 
-    // DBG("C: " << Time::getMillisecondCounterHiRes() - start);
+#if PROFILE_PAINTS
+    std::cout << "[GutterComponent::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
+#endif
 }
 
 void mcl::GutterComponent::cacheLineNumberGlyphs (int cacheSize)
@@ -201,47 +212,47 @@ mcl::HighlightComponent::HighlightComponent (const TextLayout& layout) : layout 
 void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& transformToUse)
 {
     transform = transformToUse;
-    repaint();
+
+    outlinePath.clear();
+    auto clip = getLocalBounds().toFloat().transformedBy (transform.inverted());
+    
+    for (const auto& s : layout.getSelections())
+    {
+        outlinePath.addPath (getOutlinePath (layout.getSelectionRegion (s, clip)));
+    }
+    repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
 
 void mcl::HighlightComponent::updateSelections()
 {
-    repaint();
+    outlinePath.clear();
+    auto clip = getLocalBounds().toFloat().transformedBy (transform.inverted());
+
+    for (const auto& s : layout.getSelections())
+    {
+        outlinePath.addPath (getOutlinePath (layout.getSelectionRegion (s, clip)));
+    }
+    repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
 
 void mcl::HighlightComponent::paint (juce::Graphics& g)
 {
-    g.addTransform (transform);
+#if PROFILE_PAINTS
+    auto start = Time::getMillisecondCounterHiRes();
+#endif
 
-    auto clip = g.getClipBounds().toFloat();
+    g.addTransform (transform);
     auto highlight = getParentComponent()->findColour (CodeEditorComponent::highlightColourId);
 
-    if (useRoundedHighlight)
-    {
-        for (const auto& s : layout.getSelections())
-        {
-            auto region = layout.getSelectionRegion (s, clip);
-            auto p = getOutlinePath (region);
+    g.setColour (highlight);
+    g.fillPath (outlinePath);
 
-            g.setColour (highlight);
-            g.fillPath (p);
+    g.setColour (highlight.darker());
+    g.strokePath (outlinePath, PathStrokeType (1.f));
 
-            g.setColour (highlight.darker());
-            g.strokePath (p, PathStrokeType (1.f));
-        }
-    }
-    else
-    {
-        g.setColour (highlight);
-
-        for (const auto& s : layout.getSelections())
-        {
-            for (const auto& patch : layout.getSelectionRegion (s, clip))
-            {
-                g.fillRect (patch);
-            }
-        }
-    }
+#if PROFILE_PAINTS
+    std::cout << "[HighlightComponent::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
+#endif
 }
 
 Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rectangles)
@@ -1003,17 +1014,21 @@ void mcl::TextEditor::resized()
 
 void mcl::TextEditor::paint (Graphics& g)
 {
+#if PROFILE_PAINTS
+    auto start = Time::getMillisecondCounterHiRes();
+#endif
+
     g.fillAll (findColour (CodeEditorComponent::backgroundColourId));
     g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
-
-    // auto start = Time::getMillisecondCounterHiRes();
 
     layout.findGlyphsIntersecting (g.getClipBounds()
                                    .toFloat()
                                    .transformedBy (transform.inverted())
                                    ).draw (g, transform);
 
-    // DBG(Time::getMillisecondCounterHiRes() - start);
+#if PROFILE_PAINTS
+    std::cout << "[TextEditor::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
+#endif
 }
 
 void mcl::TextEditor::paintOverChildren (Graphics& g)

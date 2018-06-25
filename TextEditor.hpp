@@ -401,6 +401,7 @@ private:
     bool useRoundedHighlight = true;
     const TextLayout& layout;
     juce::AffineTransform transform;
+    juce::Path outlinePath;
 };
 
 
