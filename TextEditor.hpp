@@ -169,30 +169,6 @@ struct mcl::Selection
 
 
 //==============================================================================
-class mcl::Scanner
-{
-public:
-    Scanner (const TextLayout& layout);
-    void addPattern (const juce::Identifier& identifier, const juce::String& pattern);
-    void reset() { index = {0, 0}; tokenIndex = {0, 0}; token = juce::Identifier(); }
-    void clear();
-    bool next();
-    const juce::Identifier& getToken() const { return token; }
-    const juce::Point<int>& getIndex() const { return tokenIndex; }
-    Selection getZone() const { return { tokenIndex, index }; }
-private:
-    class Pattern;
-    const TextLayout& layout;
-    juce::Identifier token;
-    juce::Point<int> index;
-    juce::Point<int> tokenIndex;
-    juce::Array<std::unique_ptr<Pattern>> patterns;
-};
-
-
-
-
-//==============================================================================
 struct mcl::Transaction
 {
     using Callback = std::function<void(const Transaction&)>;
@@ -525,6 +501,7 @@ class mcl::TextEditor : public juce::Component
 {
 public:
     TextEditor();
+    ~TextEditor();
     void setFont (juce::Font font);
     void setText (const juce::String& text);
     void translateView (float dx, float dy);
@@ -552,7 +529,7 @@ private:
     double lastTransactionTime;
     bool tabKeyUsed = true;
     TextLayout layout;
-    Scanner scanner; // Experimental
+    std::shared_ptr<Scanner> scanner; // Experimental
     CaretComponent caret;
     GutterComponent gutter;
     HighlightComponent highlight;
