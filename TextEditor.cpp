@@ -464,18 +464,15 @@ const String& mcl::GlyphArrangementArray::operator[] (int index) const
     return empty;
 }
 
-GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index, float baseline, bool withTrailingSpace) const
+GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index, Font font, float baseline, bool withTrailingSpace) const
 {
-    if (! isPositiveAndBelow (index, lines.size()))
-    {
-        return GlyphArrangement();
-    }
-
-    auto& entry = lines.getReference (index);
+    static Entry empty;
+    auto& entry = isPositiveAndBelow (index, lines.size()) ? lines.getReference (index) : empty;
 
     if (entry.dirty)
     {
         entry.glyphs.clear();
+        entry.glyphsWithTrailingSpace.clear();
         entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
         entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
         entry.dirty = false;
@@ -609,7 +606,7 @@ Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
 
 GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
 {
-    return lines.getGlyphs (row, getVerticalPosition (row, Metric::baseline), withTrailingSpace);
+    return lines.getGlyphs (row, font, getVerticalPosition (row, Metric::baseline), withTrailingSpace);
 }
 
 GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area, bool strict) const
@@ -638,7 +635,7 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area,
 }
 
 Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (Rectangle<float> area,
-                                                                             bool computeHorizontalExtent) const
+                                                                       bool computeHorizontalExtent) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
@@ -693,12 +690,12 @@ Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) con
             }
         }
     }
-    return Point<int> (row, col);
+    return { row, col };
 }
 
-Point<int> mcl::TextLayout::getLast() const
+Point<int> mcl::TextLayout::getEnd() const
 {
-    return Point<int> (getNumRows() - 1, getNumColumns (getNumRows() - 1));
+    return { getNumRows(), 0 };
 }
 
 bool mcl::TextLayout::next (Point<int>& index) const
@@ -757,6 +754,11 @@ bool mcl::TextLayout::prevRow (Point<int>& index) const
 
 bool mcl::TextLayout::nextWord (Point<int>& index) const
 {
+    if (index == getEnd())
+    {
+        return false;
+    }
+
     if (CharacterFunctions::isWhitespace (getCharacter (index)))
         while (next (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
 
@@ -769,7 +771,8 @@ bool mcl::TextLayout::nextWord (Point<int>& index) const
 
 bool mcl::TextLayout::prevWord (Point<int>& index) const
 {
-    prev (index);
+    if (! prev (index))
+        return false;
 
     if (CharacterFunctions::isWhitespace (getCharacter (index)))
         while (prev (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
@@ -787,26 +790,37 @@ bool mcl::TextLayout::prevWord (Point<int>& index) const
 
 juce_wchar mcl::TextLayout::getCharacter (Point<int> index) const
 {
-    jassert (0 <= index.x && index.x < lines.size());
+    jassert (0 <= index.x && index.x <= lines.size());
     jassert (0 <= index.y && index.y <= lines[index.x].length());
-    return index.y == lines[index.x].length() ? '\n' : lines[index.x].getCharPointer()[index.y];
+
+    if (index == getEnd() || index.y == lines[index.x].length())
+    {
+        return '\n';
+    }
+    return  lines[index.x].getCharPointer()[index.y];
 }
 
 mcl::Selection mcl::TextLayout::getSelection (int index, Navigation navigation, bool fixingTail) const
 {
     auto s = selections[index];
 
-    auto post = [fixingTail] (auto& T)
+    auto post = [this, fixingTail] (auto& T)
     {
+        if (T.head == getEnd())
+        {
+            prev (T.head);
+        }
         if (! fixingTail)
+        {
             T.tail = T.head;
+        }
         return T;
     };
 
     switch (navigation)
     {
         case Navigation::identity: return s;
-        case Navigation::wholeDocument : { s.head = { 0, 0 }; s.tail = getLast(); } return post (s);
+        case Navigation::wholeDocument : { s.head = { 0, 0 }; s.tail = getEnd(); } return post (s);
         case Navigation::wholeLine     : { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return post (s);
         case Navigation::wholeWord     : { prevWord (s.head); nextWord (s.tail); } return post (s);
         case Navigation::forwardByChar : next (s.head); return post (s);
@@ -1159,10 +1173,16 @@ void mcl::TextEditor::paint (Graphics& g)
     g.fillAll (findColour (CodeEditorComponent::backgroundColourId));
     g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
 
-    layout.findGlyphsIntersecting (g.getClipBounds()
-                                   .toFloat()
-                                   .transformedBy (transform.inverted())
-                                   ).draw (g, transform);
+    auto glyphs = layout.findGlyphsIntersecting (g.getClipBounds()
+                                                 .toFloat()
+                                                 .transformedBy (transform.inverted()));
+
+#if PROFILE_PAINTS
+    std::cout << "[TextLayout::findGlyphsIntersecting] " << Time::getMillisecondCounterHiRes() - start << std::endl;
+    start = Time::getMillisecondCounterHiRes();
+#endif
+
+    glyphs.draw (g, transform);
 
 #if PROFILE_PAINTS
     std::cout << "[TextEditor::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;

@@ -21,7 +21,7 @@ namespace mcl {
         Factoring of responsibilities in the text editor classes:
      */
     class CaretComponent;         // draws the caret symbol(s)
-    class GlyphArrangementArray;  // analogous to StringArray, but caching AlyphArrangements
+    class GlyphArrangementArray;  // analogous to StringArray, but caching GlyphArrangements
     class GutterComponent;        // draws the gutter
     class HighlightComponent;     // draws the highlight region(s)
     class Scanner;                // matches a collection of regex's in the content
@@ -200,14 +200,13 @@ class mcl::GlyphArrangementArray
 {
 public:
 
-    void setFont (juce::Font fontToUse) { font = fontToUse; invalidateAll(); }
     int size() const { return lines.size(); }
     void clear() { lines.clear(); }
     void add (const juce::String& string) { lines.add (string); }
     void insert (int index, const juce::String& string) { lines.insert (index, string); }
     void removeRange (int startIndex, int numberToRemove) { lines.removeRange (startIndex, numberToRemove); }
     const juce::String& operator[] (int index) const;
-    juce::GlyphArrangement getGlyphs (int index, float baseline, bool withTrailingSpace=false) const;
+    juce::GlyphArrangement getGlyphs (int index, juce::Font font, float baseline, bool withTrailingSpace=false) const;
 
 private:
     void invalidateAll();
@@ -263,7 +262,7 @@ public:
     juce::Font getFont() const { return font; }
 
     /** Set the font to be applied to all text. */
-    void setFont (juce::Font fontToUse) { lines.setFont (font = fontToUse); }
+    void setFont (juce::Font fontToUse) { font = fontToUse; }
 
     /** Replace the whole layout content. */
     void replaceAll (const juce::String& content);
@@ -330,7 +329,8 @@ public:
     /** Find the row and column index nearest to the given position. */
     juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
 
-    juce::Point<int> getLast() const;
+    /** Return an index pointing to one-past-the-end. */
+    juce::Point<int> getEnd() const;
 
     /** Advance the given index by a single character, moving to the next
         line if at the end. Return false if the index cannot be advanced
@@ -391,6 +391,7 @@ private:
     float lineSpacing = 1.25f;
     mutable juce::Rectangle<float> cachedBounds;
     GlyphArrangementArray lines;
+    //    juce::StringArray lines;
     juce::Font font;
     juce::Array<Selection> selections;
 };
