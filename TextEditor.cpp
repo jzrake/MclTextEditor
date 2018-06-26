@@ -78,7 +78,7 @@ void mcl::CaretComponent::timerCallback()
 
 Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
 {
-    juce::Array<juce::Rectangle<float>> rectangles;
+    Array<Rectangle<float>> rectangles;
 
     for (const auto& selection : layout.getSelections())
     {
@@ -101,7 +101,7 @@ mcl::GutterComponent::GutterComponent (const TextLayout& layout) : layout (layou
     setInterceptsMouseClicks (false, false);
 }
 
-void mcl::GutterComponent::setViewTransform (const juce::AffineTransform& transformToUse)
+void mcl::GutterComponent::setViewTransform (const AffineTransform& transformToUse)
 {
     transform = transformToUse;
     repaint();
@@ -112,7 +112,7 @@ void mcl::GutterComponent::updateSelections()
     repaint();
 }
 
-void mcl::GutterComponent::paint (juce::Graphics& g)
+void mcl::GutterComponent::paint (Graphics& g)
 {
 #if PROFILE_PAINTS
     auto start = Time::getMillisecondCounterHiRes();
@@ -186,7 +186,7 @@ void mcl::GutterComponent::cacheLineNumberGlyphs (int cacheSize)
     }
 }
 
-juce::GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool useCached) const
+GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool useCached) const
 {
     if (useCached && row < lineNumberGlyphsCache.size())
     {
@@ -209,7 +209,7 @@ mcl::HighlightComponent::HighlightComponent (const TextLayout& layout) : layout 
     setInterceptsMouseClicks (false, false);
 }
 
-void mcl::HighlightComponent::setViewTransform (const juce::AffineTransform& transformToUse)
+void mcl::HighlightComponent::setViewTransform (const AffineTransform& transformToUse)
 {
     transform = transformToUse;
 
@@ -235,7 +235,7 @@ void mcl::HighlightComponent::updateSelections()
     repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
 
-void mcl::HighlightComponent::paint (juce::Graphics& g)
+void mcl::HighlightComponent::paint (Graphics& g)
 {
 #if PROFILE_PAINTS
     auto start = Time::getMillisecondCounterHiRes();
@@ -286,7 +286,7 @@ Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rec
 
 
 //==============================================================================
-mcl::Selection::Selection (const juce::String& content)
+mcl::Selection::Selection (const String& content)
 {
     int rowSpan = 0;
     int n = 0, lastLineStart = 0;
@@ -343,7 +343,7 @@ mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) 
     return s;
 }
 
-mcl::Selection mcl::Selection::measuring (const juce::String& content) const
+mcl::Selection mcl::Selection::measuring (const String& content) const
 {
     Selection s (content);
 
@@ -357,7 +357,7 @@ mcl::Selection mcl::Selection::measuring (const juce::String& content) const
     }
 }
 
-mcl::Selection mcl::Selection::startingFrom (juce::Point<int> index) const
+mcl::Selection mcl::Selection::startingFrom (Point<int> index) const
 {
     Selection s = *this;
 
@@ -386,7 +386,7 @@ void mcl::Selection::pushBy (Selection appearingSelection)
     appearingSelection.push (tail);
 }
 
-void mcl::Selection::pull (juce::Point<int>& index) const
+void mcl::Selection::pull (Point<int>& index) const
 {
     const auto S = oriented();
 
@@ -418,7 +418,7 @@ void mcl::Selection::pull (juce::Point<int>& index) const
     }
 }
 
-void mcl::Selection::push (juce::Point<int>& index) const
+void mcl::Selection::push (Point<int>& index) const
 {
     const auto S = oriented();
 
@@ -446,6 +446,56 @@ void mcl::Selection::push (juce::Point<int>& index) const
     if (S.head.x <= index.x)
     {
         index.x += S.tail.x - S.head.x;
+    }
+}
+
+
+
+
+//==============================================================================
+const String& mcl::GlyphArrangementArray::operator[] (int index) const
+{
+    if (isPositiveAndBelow (index, lines.size()))
+    {
+        return lines.getReference (index).string;
+    }
+
+    static String empty;
+    return empty;
+}
+
+GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index, float baseline, bool withTrailingSpace) const
+{
+    if (! isPositiveAndBelow (index, lines.size()))
+    {
+        return GlyphArrangement();
+    }
+
+    auto& entry = lines.getReference (index);
+
+    if (entry.dirty)
+    {
+        entry.glyphs.clear();
+        entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
+        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
+        entry.dirty = false;
+    }
+
+    auto glyphs = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
+    auto N = glyphs.getNumGlyphs();
+
+    for (int n = 0; n < N; ++n)
+    {
+        glyphs.getGlyph (n).moveBy (0.f, baseline);
+    }
+    return glyphs;
+}
+
+void mcl::GlyphArrangementArray::invalidateAll()
+{
+    for (auto& entry : lines)
+    {
+        entry.dirty = true;
     }
 }
 
@@ -528,7 +578,7 @@ Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection
     return patches;
 }
 
-juce::Rectangle<float> mcl::TextLayout::getBounds() const
+Rectangle<float> mcl::TextLayout::getBounds() const
 {
     if (cachedBounds.isEmpty())
     {
@@ -546,9 +596,9 @@ juce::Rectangle<float> mcl::TextLayout::getBounds() const
 Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
 {
     return getGlyphsForRow (row, true)
-        .getBoundingBox (columns.getStart(), columns.getLength(), true)
-        .withTop    (getVerticalPosition (row, Metric::top))
-        .withBottom (getVerticalPosition (row, Metric::bottom));
+        .getBoundingBox    (columns.getStart(), columns.getLength(), true)
+        .withTop           (getVerticalPosition (row, Metric::top))
+        .withBottom        (getVerticalPosition (row, Metric::bottom));
 }
 
 Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
@@ -559,17 +609,7 @@ Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
 
 GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
 {
-    GlyphArrangement glyphs;
-
-    if (withTrailingSpace)
-    {
-        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
-    }
-    else
-    {
-        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
-    }
-    return glyphs;
+    return lines.getGlyphs (row, getVerticalPosition (row, Metric::baseline), withTrailingSpace);
 }
 
 GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area, bool strict) const
@@ -597,7 +637,7 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area,
     return glyphs;
 }
 
-juce::Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (juce::Rectangle<float> area,
+Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (Rectangle<float> area,
                                                                              bool computeHorizontalExtent) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
@@ -661,7 +701,7 @@ Point<int> mcl::TextLayout::getLast() const
     return Point<int> (getNumRows() - 1, getNumColumns (getNumRows() - 1));
 }
 
-bool mcl::TextLayout::next (juce::Point<int>& index) const
+bool mcl::TextLayout::next (Point<int>& index) const
 {
     if (index.y < getNumColumns (index.x))
     {
@@ -677,7 +717,7 @@ bool mcl::TextLayout::next (juce::Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::prev (juce::Point<int>& index) const
+bool mcl::TextLayout::prev (Point<int>& index) const
 {
     if (index.y > 0)
     {
@@ -693,7 +733,7 @@ bool mcl::TextLayout::prev (juce::Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::nextRow (juce::Point<int>& index) const
+bool mcl::TextLayout::nextRow (Point<int>& index) const
 {
     if (index.x < getNumRows())
     {
@@ -704,7 +744,7 @@ bool mcl::TextLayout::nextRow (juce::Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::prevRow (juce::Point<int>& index) const
+bool mcl::TextLayout::prevRow (Point<int>& index) const
 {
     if (index.x > 0)
     {
@@ -715,7 +755,7 @@ bool mcl::TextLayout::prevRow (juce::Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::nextWord (juce::Point<int>& index) const
+bool mcl::TextLayout::nextWord (Point<int>& index) const
 {
     if (CharacterFunctions::isWhitespace (getCharacter (index)))
         while (next (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
@@ -727,7 +767,7 @@ bool mcl::TextLayout::nextWord (juce::Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::prevWord (juce::Point<int>& index) const
+bool mcl::TextLayout::prevWord (Point<int>& index) const
 {
     prev (index);
 
@@ -745,7 +785,7 @@ bool mcl::TextLayout::prevWord (juce::Point<int>& index) const
     return false;
 }
 
-juce::juce_wchar mcl::TextLayout::getCharacter (juce::Point<int> index) const
+juce_wchar mcl::TextLayout::getCharacter (Point<int> index) const
 {
     jassert (0 <= index.x && index.x < lines.size());
     jassert (0 <= index.y && index.y <= lines[index.x].length());
@@ -866,13 +906,13 @@ public:
 
     struct Result
     {
-        Result (const juce::String& string) : tokenStart (string.length()) {}
+        Result (const String& string) : tokenStart (string.length()) {}
         int tokenStart;
         int tokenEnd;
         Identifier token;
     };
 
-    Pattern (const juce::Identifier& identifier, const String& pattern)
+    Pattern (const Identifier& identifier, const String& pattern)
     : identifier (identifier)
     , r (pattern.toRawUTF8())
     {
@@ -911,7 +951,7 @@ public:
     }
 private:
     friend class Scanner;
-    juce::Identifier identifier;
+    Identifier identifier;
     std::regex r;
 };
 
@@ -923,7 +963,7 @@ mcl::Scanner::Scanner (const TextLayout& layout) : layout (layout)
 {
 }
 
-void mcl::Scanner::addPattern (const juce::Identifier& identifier, const String& pattern)
+void mcl::Scanner::addPattern (const Identifier& identifier, const String& pattern)
 {
     patterns.add (std::make_unique<Pattern> (identifier, pattern));
 }
@@ -952,7 +992,7 @@ bool mcl::Scanner::next()
 
 
 //==============================================================================
-class mcl::Transaction::Undoable : public juce::UndoableAction
+class mcl::Transaction::Undoable : public UndoableAction
 {
 public:
     Undoable (TextLayout& layout, Callback callback, Transaction forward)
@@ -1010,7 +1050,7 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
     return t;
 }
 
-juce::UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callback)
+UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callback)
 {
     return new Undoable (layout, callback, *this);
 }
@@ -1041,7 +1081,7 @@ mcl::TextEditor::TextEditor()
     addAndMakeVisible (gutter);
 }
 
-void mcl::TextEditor::setFont (juce::Font font)
+void mcl::TextEditor::setFont (Font font)
 {
     layout.setFont (font);
     gutter.cacheLineNumberGlyphs();

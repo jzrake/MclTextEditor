@@ -20,14 +20,15 @@ namespace mcl {
     /**
         Factoring of responsibilities in the text editor classes:
      */
-    class CaretComponent;     // draws the caret symbol(s)
-    class GutterComponent;    // draws the gutter
-    class HighlightComponent; // draws the highlight region(s)
-    class Scanner;            // matches a collection of regex's in the content
-    class Selection;          // stores leading and trailing edges of an editing region
-    class TextLayout;         // stores text data and caret ranges, supplies metrics, accepts actions
-    class TextEditor;         // is a component, issues actions, computes view transform
-    class Transaction;        // a text replacement, the layout computes the inverse on fulfilling it
+    class CaretComponent;         // draws the caret symbol(s)
+    class GlyphArrangementArray;  // analogous to StringArray, but caching AlyphArrangements
+    class GutterComponent;        // draws the gutter
+    class HighlightComponent;     // draws the highlight region(s)
+    class Scanner;                // matches a collection of regex's in the content
+    class Selection;              // stores leading and trailing edges of an editing region
+    class TextLayout;             // stores text data and caret ranges, supplies metrics, accepts actions
+    class TextEditor;             // is a component, issues actions, computes view transform
+    class Transaction;            // a text replacement, the layout computes the inverse on fulfilling it
 }
 
 
@@ -191,6 +192,42 @@ private:
 
 
 //==============================================================================
+/**
+	This class wraps a StringArray and memoizes the evaluation of glyph
+	arrangements derived from the associated strings.
+*/
+class mcl::GlyphArrangementArray
+{
+public:
+
+    void setFont (juce::Font fontToUse) { font = fontToUse; invalidateAll(); }
+    int size() const { return lines.size(); }
+    void clear() { lines.clear(); }
+    void add (const juce::String& string) { lines.add (string); }
+    void insert (int index, const juce::String& string) { lines.insert (index, string); }
+    void removeRange (int startIndex, int numberToRemove) { lines.removeRange (startIndex, numberToRemove); }
+    const juce::String& operator[] (int index) const;
+    juce::GlyphArrangement getGlyphs (int index, float baseline, bool withTrailingSpace=false) const;
+
+private:
+    void invalidateAll();
+    struct Entry
+    {
+        Entry() {}
+        Entry (const juce::String& string) : string (string) {}
+        juce::String string;
+        juce::GlyphArrangement glyphsWithTrailingSpace;
+        juce::GlyphArrangement glyphs;
+        bool dirty = true;
+    };
+    juce::Font font;
+    mutable juce::Array<Entry> lines;
+};
+
+
+
+
+//==============================================================================
 class mcl::TextLayout
 {
 public:
@@ -226,7 +263,7 @@ public:
     juce::Font getFont() const { return font; }
 
     /** Set the font to be applied to all text. */
-    void setFont (juce::Font fontToUse) { font = fontToUse; }
+    void setFont (juce::Font fontToUse) { lines.setFont (font = fontToUse); }
 
     /** Replace the whole layout content. */
     void replaceAll (const juce::String& content);
@@ -353,8 +390,8 @@ public:
 private:
     float lineSpacing = 1.25f;
     mutable juce::Rectangle<float> cachedBounds;
+    GlyphArrangementArray lines;
     juce::Font font;
-    juce::StringArray lines;
     juce::Array<Selection> selections;
 };
 
