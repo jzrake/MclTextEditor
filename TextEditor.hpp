@@ -24,11 +24,16 @@ namespace mcl {
     class GlyphArrangementArray;  // analogous to StringArray, but caching GlyphArrangements
     class GutterComponent;        // draws the gutter
     class HighlightComponent;     // draws the highlight region(s)
-    class Scanner;                // matches a collection of regex's in the content (experimental)
     class Selection;              // stores leading and trailing edges of an editing region
     class TextLayout;             // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;             // is a component, issues actions, computes view transform
     class Transaction;            // a text replacement, the layout computes the inverse on fulfilling it
+
+    // From Syntax.hpp (experimental)
+    class Context;                // defines a scanner and handles its tokens
+    class Parser;                 // state machine maintaining a stack of contexts
+    class Scanner;                // matches a collection of regex's in the content
+    class SyntaxTree;             // a tree struct mirroring the syntax of a code/text document
 }
 
 
@@ -265,6 +270,23 @@ public:
         int rowNumber = 0;
         bool isRowSelected = false;
         juce::Rectangle<float> bounds;
+    };
+
+    class Iterator
+    {
+    public:
+        Iterator (const TextLayout& layout) noexcept : layout (&layout) {}
+        juce::juce_wchar nextChar() noexcept      { if (isEOF()) return 0; layout->next (index); return get(); }
+        juce::juce_wchar peekNextChar() noexcept  { return get(); }
+        void skip() noexcept                      { if (! isEOF()) { layout->next (index); } }
+        void skipWhitespace() noexcept            { while (! isEOF() && juce::CharacterFunctions::isWhitespace (get())) skip(); }
+        void skipToEndOfLine() noexcept           { index.y = layout->getNumColumns (index.x); }
+        bool isEOF() const noexcept               { return index == layout->getEnd(); }
+        const juce::Point<int>& getIndex() const noexcept { return index; }
+    private:
+        juce::juce_wchar get() { return layout->getCharacter (index); }
+        const TextLayout* layout;
+        juce::Point<int> index;
     };
 
     /** Get the current font. */

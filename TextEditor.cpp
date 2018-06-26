@@ -18,6 +18,7 @@ using namespace juce;
 #define GUTTER_WIDTH 48.f
 #define CURSOR_WIDTH 3.f
 #define TEST_MULTI_CARET_EDITING true
+#define TEST_SYNTAX_SUPPORT true
 #define ENABLE_CARET_BLINK false
 #define PROFILE_PAINTS false
 
@@ -1123,24 +1124,61 @@ void mcl::TextEditor::paint (Graphics& g)
 #endif
 
     g.fillAll (findColour (CodeEditorComponent::backgroundColourId));
-    // g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
 
-    Array<Colour> colours =
-    {
-        findColour (CodeEditorComponent::defaultTextColourId),
-        Colours::orange,
-        Colours::purple,
-        Colours::red,
-    };
+    auto rows = layout.findRowsIntersecting(g.getClipBounds()
+                                            .toFloat()
+                                            .transformedBy (transform.inverted()));
 
-    for (int style = 0; style <= 3; ++style)
+    for (const auto& r: rows)
     {
-        g.setColour (colours[style]);
-        auto glyphs = layout.findGlyphsIntersecting (g.getClipBounds()
-                                                     .toFloat()
-                                                     .transformedBy (transform.inverted()), style);
-        glyphs.draw (g, transform);
+        auto line = layout.getLine (r.rowNumber);
+
+        // Everybody knows the 9000 characters per line limit :)
+        auto bounds = layout.getBoundsOnRow (r.rowNumber, {0, getLocalBounds().getWidth()}).transformedBy (transform);
+
+        AttributedString s;
+
+        float originalHeight = layout.getFont().getHeight();
+        auto font = layout.getFont().withHeight (originalHeight * transform.getScaleFactor());
+
+        // Just create this to get the colour scheme...
+        CPlusPlusCodeTokeniser tokeniser;
+        auto colourScheme = tokeniser.getDefaultColourScheme();
+
+        CppTokeniserFunctions::StringIterator si (line);
+        auto previous = si.t;
+
+        while (!si.isEOF())
+        {
+            auto tokenType = CppTokeniserFunctions::readNextToken (si);
+            auto colour = colourScheme.types[tokenType].colour;
+            auto token = String (previous, si.t);
+
+            previous = si.t;
+            s.append (token, font, colour);
+        }
+        s.draw (g, bounds);
     }
+
+//    CPlusPlusCodeTokeniser tokeniser;
+//    auto scheme = tokeniser.getDefaultColourScheme();
+//
+//
+//    for (int style = 0; style <= scheme.types.size(); ++style)
+//    {
+//        auto colour = isPositiveAndBelow (style, scheme.types.size())
+//            ? scheme.types.getReference (style).colour
+//            : findColour (CodeEditorComponent::defaultTextColourId);
+//
+//        g.setColour (colour);
+//
+//        auto glyphs = layout.findGlyphsIntersecting (g.getClipBounds()
+//                                                     .toFloat()
+//                                                     .transformedBy (transform.inverted()), style);
+//
+//        glyphs.draw (g, transform);
+//    }
+//
 
 #if PROFILE_PAINTS
     std::cout << "[TextLayout::findGlyphsIntersecting] " << Time::getMillisecondCounterHiRes() - start << std::endl;
@@ -1304,6 +1342,9 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
             auto callback = [this, n] (const Transaction& r)
             {
+                /* -------------------- experimental */
+                scanAndSetStyleZones();
+
                 switch (r.direction) // NB: switching on the direction of the reciprocal here
                 {
                     case Transaction::Direction::forward: layout.setSelection (n, r.selection); break;
@@ -1339,12 +1380,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key.isKeyCode (KeyPress::returnKey))                       return insert ("\n");
     if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
 
-    /* experimental stuff here ------------------------------ */
-    if (key == KeyPress ('r', ModifierKeys::ctrlModifier, 0))
-    {
-        scanAndSetStyleZones();
-        return true;
-    }
     return false;
 }
 
@@ -1355,31 +1390,25 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 
 void mcl::TextEditor::scanAndSetStyleZones()
 {
-    scanner->clear();
-    scanner->reset();
-    scanner->addPattern (Identifier ("class"), "class");
-    scanner->addPattern (Identifier ("struct"), "struct");
-    scanner->addPattern (Identifier ("void"), "void");
-    scanner->addPattern (Identifier ("return"), "return");
-    scanner->addPattern (Identifier ("continue"), "continue");
-    scanner->addPattern (Identifier ("break"), "break");
-    scanner->addPattern (Identifier ("number"), "[-+]?([0-9]*\\.[0-9]+|[0-9]+)");
-
-    Array<Selection> zones;
-    NamedValueSet styles;
-
-    styles.set ("class", 1);
-    styles.set ("struct", 1);
-    styles.set ("void", 1);
-    styles.set ("return", 2);
-    styles.set ("continue", 2);
-    styles.set ("break", 2);
-    styles.set ("number", 3);
-
-    while (scanner->next())
-    {
-        zones.add (scanner->getZone().withStyle (styles[scanner->getToken()]));
-    }
-    layout.setStyleZones (zones);
-    repaint();
+#if TEST_SYNTAX_SUPPORT
+//    TextLayout::Iterator source (layout);
+//
+//    Point<int> lastIndex;
+//    Array<Selection> zones;
+//
+//    while (true)
+//    {
+//        auto token = CppTokeniserFunctions::readNextToken (source);
+//
+//        if (token == CPlusPlusCodeTokeniser::tokenType_error)
+//            break;
+//
+//        DBG("adding zone: " << Selection (lastIndex, source.getIndex()).toString() << " :: " << token);
+//        zones.add (Selection (lastIndex, source.getIndex()).withStyle (token));
+//
+//        lastIndex = source.getIndex();
+//    }
+//    layout.setStyleZones (zones);
+//    repaint();
+#endif
 }
