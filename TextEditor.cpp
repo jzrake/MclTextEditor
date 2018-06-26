@@ -18,7 +18,7 @@ using namespace juce;
 #define GUTTER_WIDTH 48.f
 #define CURSOR_WIDTH 3.f
 #define TEST_MULTI_CARET_EDITING true
-#define ENABLE_CARET_BLINK true
+#define ENABLE_CARET_BLINK false
 #define PROFILE_PAINTS false
 
 
@@ -178,7 +178,7 @@ void mcl::GutterComponent::cacheLineNumberGlyphs (int cacheSize)
      Larger cache sizes than ~1000 slows component loading. The proper way to
      do this is to write a GlyphArrangementMemoizer class. Soon enough.
      */
-    lineNumberGlyphsCache.clearQuick();
+    lineNumberGlyphsCache.clear();
 
     for (int n = 0; n < cacheSize; ++n)
     {
@@ -449,6 +449,17 @@ void mcl::Selection::push (Point<int>& index) const
     }
 }
 
+SparseSet<int> mcl::Selection::createSparseSetOnRow (int row, int numColumns, const Array<Selection>& selections)
+{
+    SparseSet<int> set;
+
+    for (const auto& selection : selections)
+    {
+        set.addRange (selection.getColumnRangeOnRow (row, numColumns));
+    }
+    return set;
+}
+
 
 
 
@@ -464,7 +475,11 @@ const String& mcl::GlyphArrangementArray::operator[] (int index) const
     return empty;
 }
 
-GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index, Font font, float baseline, bool withTrailingSpace) const
+GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
+                                                        Font font,
+                                                        float baseline,
+                                                        SparseSet<int> columns,
+                                                        bool withTrailingSpace) const
 {
     static Entry empty;
     auto& entry = isPositiveAndBelow (index, lines.size()) ? lines.getReference (index) : empty;
@@ -478,12 +493,17 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index, Font font, fl
         entry.dirty = false;
     }
 
-    auto glyphs = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
-    auto N = glyphs.getNumGlyphs();
+    auto& glyphSource = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
+    auto glyphs = GlyphArrangement();
 
-    for (int n = 0; n < N; ++n)
+    for (int n = 0; n < glyphSource.getNumGlyphs(); ++n)
     {
-        glyphs.getGlyph (n).moveBy (0.f, baseline);
+        if (columns.contains (n))
+        {
+            auto glyph = glyphSource.getGlyph (n);
+            glyph.moveBy (0.f, baseline);
+            glyphs.addGlyph (glyph);
+        }
     }
     return glyphs;
 }
@@ -592,7 +612,7 @@ Rectangle<float> mcl::TextLayout::getBounds() const
 
 Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
 {
-    return getGlyphsForRow (row, true)
+    return getGlyphsForRow (row, -1, true)
         .getBoundingBox    (columns.getStart(), columns.getLength(), true)
         .withTop           (getVerticalPosition (row, Metric::top))
         .withBottom        (getVerticalPosition (row, Metric::bottom));
@@ -604,12 +624,32 @@ Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, bool withTrailingSpace) const
+GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
 {
-    return lines.getGlyphs (row, font, getVerticalPosition (row, Metric::baseline), withTrailingSpace);
+    auto columns = SparseSet<int>();
+    auto ncol = getNumColumns (row) + withTrailingSpace;
+
+    if (style == -1) // don't filter on style
+    {
+        columns.addRange ({ 0, ncol });
+    }
+    else if (style == 0) // get glyphs not in a style zone
+    {
+        columns = Selection::createSparseSetOnRow (row, ncol, findStyleZonesIntersecting (row, -1));
+        columns.invertRange ({0, ncol});
+    }
+    else // get glyphs in the given style zone
+    {
+        columns = Selection::createSparseSetOnRow (row, ncol, findStyleZonesIntersecting (row, style));
+    }
+
+    return lines.getGlyphs (row,
+                            font,
+                            getVerticalPosition (row, Metric::baseline),
+                            columns, withTrailingSpace);
 }
 
-GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area, bool strict) const
+GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area, int style) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
@@ -618,18 +658,7 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area,
 
     for (int n = row0; n <= row1; ++n)
     {
-        glyphs.addGlyphArrangement (getGlyphsForRow (n));
-    }
-
-    if (strict)
-    {
-        for (int n = 0; n < glyphs.getNumGlyphs(); ++n)
-        {
-            if (! glyphs.getBoundingBox (n, 1, true).intersects (area))
-            {
-                glyphs.removeRangeOfGlyphs (n--, 1);
-            }
-        }
+        glyphs.addGlyphArrangement (getGlyphsForRow (n, style));
     }
     return glyphs;
 }
@@ -668,6 +697,20 @@ Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (Rectangle
         rows.add (data);
     }
     return rows;
+}
+
+juce::Array<mcl::Selection> mcl::TextLayout::findStyleZonesIntersecting (int row, int style) const
+{
+    juce::Array<mcl::Selection> zones;
+
+    for (const auto& s : styleZones)
+    {
+        if ((style == -1 || s.style == style) && s.intersectsRow (row))
+        {
+            zones.add (s);
+        }
+    }
+    return zones;
 }
 
 Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) const
@@ -982,12 +1025,17 @@ void mcl::Scanner::addPattern (const Identifier& identifier, const String& patte
     patterns.add (std::make_unique<Pattern> (identifier, pattern));
 }
 
+void mcl::Scanner::clear()
+{
+    patterns.clear();
+}
+
 bool mcl::Scanner::next()
 {
     while (index.x < layout.getNumRows())
     {
         auto result = Pattern::searchMany (patterns, layout.getLine (index.x), index.y);
-        
+
         if (result.token.isValid())
         {
             tokenIndex = { index.x, result.tokenStart };
@@ -1082,9 +1130,6 @@ mcl::TextEditor::TextEditor()
     lastTransactionTime = Time::getApproximateMillisecondCounter();
     layout.setSelections ({ Selection() });
 
-    scanner.addPattern (Identifier ("class"), "class");
-    scanner.addPattern (Identifier ("struct"), "struct");
-
     setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
 
     translateView (GUTTER_WIDTH, 0);
@@ -1171,18 +1216,28 @@ void mcl::TextEditor::paint (Graphics& g)
 #endif
 
     g.fillAll (findColour (CodeEditorComponent::backgroundColourId));
-    g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
+    // g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
 
-    auto glyphs = layout.findGlyphsIntersecting (g.getClipBounds()
-                                                 .toFloat()
-                                                 .transformedBy (transform.inverted()));
+    Array<Colour> colours =
+    {
+        findColour (CodeEditorComponent::defaultTextColourId),
+        Colours::orange,
+        Colours::purple
+    };
+
+    for (int style = 0; style <= 2; ++style)
+    {
+        g.setColour (colours[style]);
+        auto glyphs = layout.findGlyphsIntersecting (g.getClipBounds()
+                                                     .toFloat()
+                                                     .transformedBy (transform.inverted()), style);
+        glyphs.draw (g, transform);
+    }
 
 #if PROFILE_PAINTS
     std::cout << "[TextLayout::findGlyphsIntersecting] " << Time::getMillisecondCounterHiRes() - start << std::endl;
     start = Time::getMillisecondCounterHiRes();
 #endif
-
-    glyphs.draw (g, transform);
 
 #if PROFILE_PAINTS
     std::cout << "[TextEditor::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
@@ -1376,18 +1431,11 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key.isKeyCode (KeyPress::returnKey))                       return insert ("\n");
     if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
 
-
-
-    if (key == KeyPress ('c', ModifierKeys::ctrlModifier, 0))
+    /* experimental stuff here ------------------------------ */
+    if (key == KeyPress ('r', ModifierKeys::ctrlModifier, 0))
     {
-        scanner.reset();
-
-        DBG("Scanning tokens ------------------------------");
-
-        while (scanner.next())
-        {
-            DBG (scanner.getToken().toString() << " at " << scanner.getIndex().toString());
-        }
+        scanAndSetStyleZones();
+        return true;
     }
     return false;
 }
@@ -1395,4 +1443,33 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 MouseCursor mcl::TextEditor::getMouseCursor()
 {
     return getMouseXYRelative().x < GUTTER_WIDTH ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
+}
+
+void mcl::TextEditor::scanAndSetStyleZones()
+{
+    scanner.clear();
+    scanner.reset();
+    scanner.addPattern (Identifier ("class"), "class");
+    scanner.addPattern (Identifier ("struct"), "struct");
+    scanner.addPattern (Identifier ("void"), "void");
+    scanner.addPattern (Identifier ("return"), "return");
+    scanner.addPattern (Identifier ("continue"), "continue");
+    scanner.addPattern (Identifier ("break"), "break");
+
+    Array<Selection> zones;
+    NamedValueSet styles;
+
+    styles.set ("class", 1);
+    styles.set ("struct", 1);
+    styles.set ("void", 1);
+    styles.set ("return", 2);
+    styles.set ("continue", 2);
+    styles.set ("break", 2);
+
+    while (scanner.next())
+    {
+        zones.add (scanner.getZone().withStyle (styles[scanner.getToken()]));
+    }
+    layout.setStyleZones (zones);
+    repaint();
 }

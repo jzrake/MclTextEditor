@@ -24,34 +24,12 @@ namespace mcl {
     class GlyphArrangementArray;  // analogous to StringArray, but caching GlyphArrangements
     class GutterComponent;        // draws the gutter
     class HighlightComponent;     // draws the highlight region(s)
-    class Scanner;                // matches a collection of regex's in the content
+    class Scanner;                // matches a collection of regex's in the content (experimental)
     class Selection;              // stores leading and trailing edges of an editing region
     class TextLayout;             // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;             // is a component, issues actions, computes view transform
     class Transaction;            // a text replacement, the layout computes the inverse on fulfilling it
 }
-
-
-
-
-//==============================================================================
-class mcl::Scanner
-{
-public:
-    Scanner (const TextLayout& layout);
-    void addPattern (const juce::Identifier& identifier, const juce::String& pattern);
-    void reset() { index = {0, 0}; tokenIndex = {0, 0}; token = juce::Identifier(); }
-    bool next();
-    const juce::Identifier& getToken() const { return token; }
-    const juce::Point<int>& getIndex() const { return tokenIndex; }
-private:   
-    class Pattern;
-    const TextLayout& layout;
-    juce::Identifier token;
-    juce::Point<int> index;
-    juce::Point<int> tokenIndex;
-    juce::Array<std::unique_ptr<Pattern>> patterns;
-};
 
 
 
@@ -88,6 +66,14 @@ struct mcl::Selection
         return head == other.head && tail == other.tail;
     }
 
+    bool operator< (const Selection& other) const
+    {
+        const auto A = this->oriented();
+        const auto B = other.oriented();
+        if (A.head.x == B.head.x) return A.head.y < B.head.y;
+        return A.head.x < B.head.x;
+    }
+
     juce::String toString() const
     {
         return "(" + head.toString() + ") - (" + tail.toString() + ")";
@@ -105,6 +91,22 @@ struct mcl::Selection
         return isOriented()
             ? head.x <= row && row <= tail.x
             : head.x >= row && row >= tail.x;
+    }
+
+    /** Return the range of columns this selection covers on the given row. */
+    juce::Range<int> getColumnRangeOnRow (int row, int numColumns) const
+    {
+        const auto A = oriented();
+
+        if (row < A.head.x || row > A.tail.x)
+            return {};
+        if (row == A.head.x && row == A.tail.x)
+            return { A.head.y, A.tail.y };
+        if (row == A.head.x)
+            return { A.head.y, numColumns };
+        if (row == A.tail.x)
+            return { 0, A.tail.y };
+        return {};
     }
 
     /** Whether the head precedes the tail. */
@@ -134,6 +136,8 @@ struct mcl::Selection
      */
     Selection startingFrom (juce::Point<int> index) const;
 
+    Selection withStyle (int style) const { auto s = *this; s.style = style; return s; }
+
     /** Modify this selection (if necessary) to account for the disapearance of a
         selection someplace else.
      */
@@ -154,8 +158,35 @@ struct mcl::Selection
      */
     void push (juce::Point<int>& index) const;
 
+    static juce::SparseSet<int> createSparseSetOnRow (int row, int numColumns, const juce::Array<Selection>& selections);
+
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
+    int style = 0;
+};
+
+
+
+
+//==============================================================================
+class mcl::Scanner
+{
+public:
+    Scanner (const TextLayout& layout);
+    void addPattern (const juce::Identifier& identifier, const juce::String& pattern);
+    void reset() { index = {0, 0}; tokenIndex = {0, 0}; token = juce::Identifier(); }
+    void clear();
+    bool next();
+    const juce::Identifier& getToken() const { return token; }
+    const juce::Point<int>& getIndex() const { return tokenIndex; }
+    Selection getZone() const { return { tokenIndex, index }; }
+private:
+    class Pattern;
+    const TextLayout& layout;
+    juce::Identifier token;
+    juce::Point<int> index;
+    juce::Point<int> tokenIndex;
+    juce::Array<std::unique_ptr<Pattern>> patterns;
 };
 
 
@@ -199,15 +230,17 @@ private:
 class mcl::GlyphArrangementArray
 {
 public:
-
     int size() const { return lines.size(); }
     void clear() { lines.clear(); }
     void add (const juce::String& string) { lines.add (string); }
     void insert (int index, const juce::String& string) { lines.insert (index, string); }
     void removeRange (int startIndex, int numberToRemove) { lines.removeRange (startIndex, numberToRemove); }
     const juce::String& operator[] (int index) const;
-    juce::GlyphArrangement getGlyphs (int index, juce::Font font, float baseline, bool withTrailingSpace=false) const;
-
+    juce::GlyphArrangement getGlyphs (int index,
+                                      juce::Font font,
+                                      float baseline,
+                                      juce::SparseSet<int> columns,
+                                      bool withTrailingSpace=false) const;
 private:
     void invalidateAll();
     struct Entry
@@ -273,6 +306,8 @@ public:
     /** Replace the selection at the given index. The index must be in range. */
     void setSelection (int index, Selection newSelection) { selections.setUnchecked (index, newSelection); }
 
+    void setStyleZones (const juce::Array<Selection>& newStyleZones) { styleZones = newStyleZones; }
+
     /** Get the number of rows in the layout. */
     int getNumRows() const;
 
@@ -311,13 +346,20 @@ public:
     /** Return the position of the glyph at the given row and column. */
     juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
 
-    /** Return a glyph arrangement for the given row. */
-    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false) const;
-    
-    /** Return all glyphs whose bounding boxes intersect the given area. This method
-        may be generous (including glyphs that don't intersect) unless strict is true.
+    /** Return a glyph arrangement for the given row.  If style > 0, then
+        only glyphs within a style zone of that value are returned. A style value of
+        -1 means not to filter on style, and 0 means to include only glyphs that do
+        not lie in a style zone.
      */
-    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, bool strict=false) const;
+    juce::GlyphArrangement getGlyphsForRow (int row, int style=-1, bool withTrailingSpace=false) const;
+
+    /** Return all glyphs whose bounding boxes intersect the given area. This method
+        may be generous (including glyphs that don't intersect). If style > 0, then
+        only glyphs within a style zone of that value are returned. A style value of
+        -1 means not to filter on style, and 0 means to include only glyphs that do
+        not lie in a style zone.
+     */
+    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, int style=-1) const;
 
     /** Return data on the rows intersecting the given area. This is sort
         of a convenience method for calling getBoundsOnRow() over a range,
@@ -325,6 +367,12 @@ public:
      */
     juce::Array<RowData> findRowsIntersecting (juce::Rectangle<float> area,
                                                bool computeHorizontalExtent=false) const;
+
+    /** Return an array of stlye zones intersecting the given row. If style > 0,
+        then only glyphs within a style zone of that value are returned. A style
+        value of -1 means not to filter on style.
+     */
+     juce::Array<Selection> findStyleZonesIntersecting (int row, int style) const;
 
     /** Find the row and column index nearest to the given position. */
     juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
@@ -394,6 +442,7 @@ private:
     //    juce::StringArray lines;
     juce::Font font;
     juce::Array<Selection> selections;
+    juce::Array<Selection> styleZones;
 };
 
 
@@ -498,6 +547,7 @@ private:
     void updateViewTransform();
     void updateSelections();
     void translateToEnsureCaretIsVisible();
+    void scanAndSetStyleZones();
 
     double lastTransactionTime;
     bool tabKeyUsed = true;
