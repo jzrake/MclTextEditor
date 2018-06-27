@@ -478,9 +478,12 @@ const String& mcl::GlyphArrangementArray::operator[] (int index) const
 
 void mcl::GlyphArrangementArray::clearStyleMask (int index)
 {
+    if (! isPositiveAndBelow (index, lines.size()))
+        return;
+
     auto& entry = lines.getReference (index);
 
-    jassert (! entry.dirty);
+    ensureValid (index);
 
     for (int col = 0; col < entry.styleMask.size(); ++col)
     {
@@ -490,10 +493,13 @@ void mcl::GlyphArrangementArray::clearStyleMask (int index)
 
 void mcl::GlyphArrangementArray::applyStyleMask (int index, Selection zone)
 {
+    if (! isPositiveAndBelow (index, lines.size()))
+        return;
+
     auto& entry = lines.getReference (index);
     auto range = zone.getColumnRangeOnRow (index, entry.styleMask.size());
 
-    jassert (! entry.dirty);
+    ensureValid (index);
 
     for (int col = range.getStart(); col < range.getEnd(); ++col)
     {
@@ -502,7 +508,6 @@ void mcl::GlyphArrangementArray::applyStyleMask (int index, Selection zone)
 }
 
 GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
-                                                        Font font,
                                                         float baseline,
                                                         int style,
                                                         bool withTrailingSpace) const
@@ -517,7 +522,7 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
         }
         return glyphs;
     }
-    ensureValid (index, font);
+    ensureValid (index);
 
     auto& entry = lines.getReference (index);
     auto& glyphSource = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
@@ -535,7 +540,7 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
     return glyphs;
 }
 
-void mcl::GlyphArrangementArray::ensureValid (int index, juce::Font font) const
+void mcl::GlyphArrangementArray::ensureValid (int index) const
 {
     if (! isPositiveAndBelow (index, lines.size()))
         return;
@@ -674,7 +679,6 @@ GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool wi
     if (cacheGlyphArrangement)
     {
         return lines.getGlyphs (row,
-                                font,
                                 getVerticalPosition (row, Metric::baseline),
                                 style,
                                 withTrailingSpace);
@@ -1466,14 +1470,12 @@ void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
 
     auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
     auto font = document.getFont();
-    auto rows = document.findRowsIntersecting (g.getClipBounds().toFloat());
-    auto r0 = rows.getFirst().rowNumber;
-    auto r1 = rows.getLast().rowNumber;
-    auto T = document.getVerticalPosition (r0, TextDocument::Metric::ascent);
-    auto B = document.getVerticalPosition (r1, TextDocument::Metric::bottom);
+    auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+    auto T = document.getVerticalPosition (rows.getStart(), TextDocument::Metric::ascent);
+    auto B = document.getVerticalPosition (rows.getEnd(),   TextDocument::Metric::top);
     auto W = 10000;
     auto bounds = Rectangle<float>::leftTopRightBottom (0, T, W, B);
-    auto content = document.getSelectionContent (Selection (r0, 0, r1 + 1, 0));
+    auto content = document.getSelectionContent (Selection (rows.getStart(), 0, rows.getEnd(), 0));
 
     AttributedString s;
     s.setLineSpacing ((document.getLineSpacing() - 1.f) * font.getHeight());
@@ -1576,12 +1578,35 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 {
     g.saveState();
     g.addTransform (transform);
-    
-//    auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
-//    auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
-//    auto content = document.getSelectionContent (Selection (rows.getStart(), 0, rows.getEnd(), 0));
 
-    document.findGlyphsIntersecting (g.getClipBounds().toFloat()).draw (g);
+    auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
+    auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+
+    auto zones = Array<Selection>();
+    auto it = TextDocument::Iterator (document, { rows.getStart(), 0 });
+    auto previous = it.getIndex();
+    auto start = Time::getMillisecondCounterHiRes();
+
+    while (it.getIndex().x < rows.getEnd() && ! it.isEOF())
+    {
+        // DBG(it.getIndex().toString() << " " << rows.getStart() << " " << rows.getEnd());
+        auto tokenType = CppTokeniserFunctions::readNextToken (it);
+        zones.add (Selection (previous, it.getIndex()).withStyle (tokenType));
+        previous = it.getIndex();
+    }
+
+    document.clearStyleMask (rows);
+    document.applyStyleMask (rows, zones);
+
+    lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
+
+    for (int n = 0; n < colourScheme.types.size(); ++n)
+    {
+        g.setColour (colourScheme.types[n].colour);
+        document.findGlyphsIntersecting (g.getClipBounds().toFloat(), n).draw (g);
+    }
+
+    // document.findGlyphsIntersecting (g.getClipBounds().toFloat()).draw (g);
     g.restoreState();
 }
 

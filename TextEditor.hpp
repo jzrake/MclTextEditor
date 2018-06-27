@@ -215,12 +215,12 @@ public:
     void clearStyleMask (int index);
     void applyStyleMask (int index, Selection zone);
     juce::GlyphArrangement getGlyphs (int index,
-                                      juce::Font font,
                                       float baseline,
                                       int style,
                                       bool withTrailingSpace=false) const;
+    juce::Font font;
 private:
-    void ensureValid (int index, juce::Font font) const;
+    void ensureValid (int index) const;
     void invalidateAll();
 
     struct Entry
@@ -271,6 +271,24 @@ public:
         juce::Rectangle<float> bounds;
     };
 
+    class Iterator
+    {
+    public:
+        Iterator (const TextDocument& document, juce::Point<int> index) noexcept : document (&document), index (index) { t = get(); }
+        juce::juce_wchar nextChar() noexcept      { if (isEOF()) return 0; auto s = t; document->next (index); t = get(); return s; }
+        juce::juce_wchar peekNextChar() noexcept  { return t; }
+        void skip() noexcept                      { if (! isEOF()) { document->next (index); t = get(); } }
+        void skipWhitespace() noexcept            { while (! isEOF() && juce::CharacterFunctions::isWhitespace (t)) skip(); }
+        void skipToEndOfLine() noexcept           { while (! isEOF() && t != '\n') skip(); }
+        bool isEOF() const noexcept               { return index == document->getEnd(); }
+        const juce::Point<int>& getIndex() const noexcept { return index; }
+    private:
+        juce::juce_wchar get() { return document->getCharacter (index); }
+        juce::juce_wchar t;
+        const TextDocument* document;
+        juce::Point<int> index;
+    };
+
     /** Get the current font. */
     juce::Font getFont() const { return font; }
 
@@ -278,7 +296,7 @@ public:
     float getLineSpacing() const { return lineSpacing; }
 
     /** Set the font to be applied to all text. */
-    void setFont (juce::Font fontToUse) { font = fontToUse; }
+    void setFont (juce::Font fontToUse) { font = fontToUse; lines.font = fontToUse; }
 
     /** Replace the whole document content. */
     void replaceAll (const juce::String& content);
