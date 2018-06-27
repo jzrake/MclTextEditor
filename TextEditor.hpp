@@ -25,15 +25,9 @@ namespace mcl {
     class GutterComponent;        // draws the gutter
     class HighlightComponent;     // draws the highlight region(s)
     class Selection;              // stores leading and trailing edges of an editing region
-    class TextLayout;             // stores text data and caret ranges, supplies metrics, accepts actions
+    class TextDocument;           // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;             // is a component, issues actions, computes view transform
-    class Transaction;            // a text replacement, the layout computes the inverse on fulfilling it
-
-    // From Syntax.hpp (experimental)
-    class Context;                // defines a scanner and handles its tokens
-    class Parser;                 // state machine maintaining a stack of contexts
-    class Scanner;                // matches a collection of regex's in the content
-    class SyntaxTree;             // a tree struct mirroring the syntax of a code/text document
+    class Transaction;            // a text replacement, the document computes the inverse on fulfilling it
 }
 
 
@@ -41,7 +35,7 @@ namespace mcl {
 
 //==============================================================================
 /**
-    A data structure encapsulating a contiguous range within a TextLayout.
+    A data structure encapsulating a contiguous range within a TextDocument.
     The head and tail refer to the leading and trailing edges of a selected
     region (the head is where the caret would be rendered). The selection is
     exclusive with respect to the range of columns (y), but inclusive with
@@ -127,7 +121,7 @@ struct mcl::Selection
         of their respective lines if the selection is oriented, or otherwise with
         the head and tail at the end and beginning of their respective lines.
      */
-    Selection horizontallyMaximized (const TextLayout& layout) const;
+    Selection horizontallyMaximized (const TextDocument& document) const;
 
     /** Return a copy of this selection, with its tail (if oriented) moved to
         account for the shape of the given content, which may span multiple
@@ -183,13 +177,13 @@ struct mcl::Transaction
         characters. For example, if content == "\b" then the selection head is
         decremented and the content is erased.
      */
-    Transaction accountingForSpecialCharacters (const TextLayout& layout) const;
+    Transaction accountingForSpecialCharacters (const TextDocument& document) const;
 
     /** Return an undoable action, whose perform method thill fulfill this
         transaction, and which caches the reciprocal transaction to be
         issued in the undo method.
      */
-    juce::UndoableAction* on (TextLayout& layout, Callback callback);
+    juce::UndoableAction* on (TextDocument& document, Callback callback);
 
     mcl::Selection selection;
     juce::String content;
@@ -241,7 +235,7 @@ private:
 
 
 //==============================================================================
-class mcl::TextLayout
+class mcl::TextDocument
 {
 public:
     enum class Metric
@@ -275,17 +269,17 @@ public:
     class Iterator
     {
     public:
-        Iterator (const TextLayout& layout) noexcept : layout (&layout) {}
-        juce::juce_wchar nextChar() noexcept      { if (isEOF()) return 0; layout->next (index); return get(); }
+        Iterator (const TextDocument& document) noexcept : document (&document) {}
+        juce::juce_wchar nextChar() noexcept      { if (isEOF()) return 0; document->next (index); return get(); }
         juce::juce_wchar peekNextChar() noexcept  { return get(); }
-        void skip() noexcept                      { if (! isEOF()) { layout->next (index); } }
+        void skip() noexcept                      { if (! isEOF()) { document->next (index); } }
         void skipWhitespace() noexcept            { while (! isEOF() && juce::CharacterFunctions::isWhitespace (get())) skip(); }
-        void skipToEndOfLine() noexcept           { index.y = layout->getNumColumns (index.x); }
-        bool isEOF() const noexcept               { return index == layout->getEnd(); }
+        void skipToEndOfLine() noexcept           { index.y = document->getNumColumns (index.x); }
+        bool isEOF() const noexcept               { return index == document->getEnd(); }
         const juce::Point<int>& getIndex() const noexcept { return index; }
     private:
-        juce::juce_wchar get() { return layout->getCharacter (index); }
-        const TextLayout* layout;
+        juce::juce_wchar get() { return document->getCharacter (index); }
+        const TextDocument* document;
         juce::Point<int> index;
     };
 
@@ -295,7 +289,7 @@ public:
     /** Set the font to be applied to all text. */
     void setFont (juce::Font fontToUse) { font = fontToUse; }
 
-    /** Replace the whole layout content. */
+    /** Replace the whole document content. */
     void replaceAll (const juce::String& content);
 
     /** Replace the list of selections with a new one. */
@@ -306,10 +300,10 @@ public:
 
     void setStyleZones (const juce::Array<Selection>& newStyleZones) { styleZones = newStyleZones; }
 
-    /** Get the number of rows in the layout. */
+    /** Get the number of rows in the document. */
     int getNumRows() const;
 
-    /** Get the height of the text layout. */
+    /** Get the height of the text document. */
     float getHeight() const { return font.getHeight() * lineSpacing * getNumRows(); }
 
     /** Get the number of columns in the given row. */
@@ -318,7 +312,7 @@ public:
     /** Return the vertical position of a metric on a row. */
     float getVerticalPosition (int row, Metric metric) const;
 
-    /** Return the position in the layout at the given index, using the given
+    /** Return the position in the document at the given index, using the given
         metric for the vertical position. */
     juce::Point<float> getPosition (juce::Point<int> index, Metric metric) const;
 
@@ -329,7 +323,7 @@ public:
     juce::Array<juce::Rectangle<float>> getSelectionRegion (Selection selection,
                                                             juce::Rectangle<float> clip={}) const;
 
-    /** Return the bounds of the entire layout. */
+    /** Return the bounds of the entire document. */
     juce::Rectangle<float> getBounds() const;
 
     /** Return the bounding box for the glyphs on the given row, and within
@@ -411,7 +405,7 @@ public:
     /** Return the number of active selections. */
     int getNumSelections() const { return selections.size(); }
 
-    /** Return a line in the layout. */
+    /** Return a line in the document. */
     const juce::String& getLine (int lineIndex) const { return lines[lineIndex]; }
 
     /** Return one of the current selections, possibly operated on. */
@@ -428,8 +422,8 @@ public:
      */
     juce::String getSelectionContent (Selection selection) const;
 
-    /** Apply a transaction to the layout, and return its reciprocal. The selection
-        identified in the transaction does not need to exist in the layout.
+    /** Apply a transaction to the document, and return its reciprocal. The selection
+        identified in the transaction does not need to exist in the document.
      */
     Transaction fulfill (const Transaction& transaction);
 
@@ -450,7 +444,7 @@ private:
 class mcl::CaretComponent : public juce::Component, private juce::Timer
 {
 public:
-    CaretComponent (const TextLayout& layout);
+    CaretComponent (const TextDocument& document);
     void setViewTransform (const juce::AffineTransform& transformToUse);
     void updateSelections();
 
@@ -464,7 +458,7 @@ private:
     juce::Array<juce::Rectangle<float>> getCaretRectangles() const;
     //==========================================================================
     float phase = 0.f;
-    const TextLayout& layout;
+    const TextDocument& document;
     juce::AffineTransform transform;
 };
 
@@ -475,7 +469,7 @@ private:
 class mcl::GutterComponent : public juce::Component
 {
 public:
-    GutterComponent (const TextLayout& layout);
+    GutterComponent (const TextDocument& document);
     void setViewTransform (const juce::AffineTransform& transformToUse);
     void updateSelections();
     void cacheLineNumberGlyphs (int cacheSize=1000);
@@ -486,7 +480,7 @@ public:
 private:
     juce::GlyphArrangement getLineNumberGlyphs (int row, bool useCached) const;
     //==========================================================================
-    const TextLayout& layout;
+    const TextDocument& document;
     juce::AffineTransform transform;
     juce::Array<juce::GlyphArrangement> lineNumberGlyphsCache;
 };
@@ -498,7 +492,7 @@ private:
 class mcl::HighlightComponent : public juce::Component
 {
 public:
-    HighlightComponent (const TextLayout& layout);
+    HighlightComponent (const TextDocument& document);
     void setViewTransform (const juce::AffineTransform& transformToUse);
     void updateSelections();
 
@@ -510,7 +504,7 @@ private:
 
     //==========================================================================
     bool useRoundedHighlight = true;
-    const TextLayout& layout;
+    const TextDocument& document;
     juce::AffineTransform transform;
     juce::Path outlinePath;
 };
@@ -568,7 +562,7 @@ private:
     //==========================================================================
     double lastTransactionTime;
     bool tabKeyUsed = true;
-    TextLayout layout;
+    TextDocument document;
     CaretComponent caret;
     GutterComponent gutter;
     HighlightComponent highlight;

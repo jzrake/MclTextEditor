@@ -21,7 +21,7 @@
 class mcl::Scanner
 {
 public:
-    Scanner (const TextLayout& layout);
+    Scanner (const TextDocument& document);
     ~Scanner();
     void addPattern (const juce::Identifier& identifier, const juce::String& pattern);
     void reset() { index = {0, 0}; tokenIndex = {0, 0}; token = juce::Identifier(); }
@@ -32,7 +32,7 @@ public:
     Selection getZone() const { return { tokenIndex, index }; }
 private:
     class Pattern;
-    const TextLayout& layout;
+    const TextDocument& document;
     juce::Identifier token;
     juce::Point<int> index;
     juce::Point<int> tokenIndex;

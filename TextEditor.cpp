@@ -26,7 +26,7 @@ using namespace juce;
 
 
 //==============================================================================
-mcl::CaretComponent::CaretComponent (const TextLayout& layout) : layout (layout)
+mcl::CaretComponent::CaretComponent (const TextDocument& document) : document (document)
 {
     setInterceptsMouseClicks (false, false);
 #if ENABLE_CARET_BLINK
@@ -81,9 +81,9 @@ Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
 {
     Array<Rectangle<float>> rectangles;
 
-    for (const auto& selection : layout.getSelections())
+    for (const auto& selection : document.getSelections())
     {
-        rectangles.add (layout
+        rectangles.add (document
                         .getGlyphBounds (selection.head)
                         .removeFromLeft (CURSOR_WIDTH)
                         .translated (selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
@@ -97,7 +97,7 @@ Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
 
 
 //==========================================================================
-mcl::GutterComponent::GutterComponent (const TextLayout& layout) : layout (layout)
+mcl::GutterComponent::GutterComponent (const TextDocument& document) : document (document)
 {
     setInterceptsMouseClicks (false, false);
 }
@@ -148,7 +148,7 @@ void mcl::GutterComponent::paint (Graphics& g)
      ------------------------------------------------------------------
      */
     auto area = g.getClipBounds().toFloat().transformedBy (transform.inverted());
-    auto rowData = layout.findRowsIntersecting (area);
+    auto rowData = document.findRowsIntersecting (area);
     auto verticalTransform = transform.withAbsoluteTranslation (0.f, transform.getTranslationY());
 
     for (const auto& r : rowData)
@@ -195,9 +195,9 @@ GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool useCac
     }
 
     GlyphArrangement glyphs;
-    glyphs.addLineOfText (layout.getFont().withHeight (12.f),
+    glyphs.addLineOfText (document.getFont().withHeight (12.f),
                           String (row + 1),
-                          8.f, layout.getVerticalPosition (row, TextLayout::Metric::baseline));
+                          8.f, document.getVerticalPosition (row, TextDocument::Metric::baseline));
     return glyphs;
 }
 
@@ -205,7 +205,7 @@ GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool useCac
 
 
 //==========================================================================
-mcl::HighlightComponent::HighlightComponent (const TextLayout& layout) : layout (layout)
+mcl::HighlightComponent::HighlightComponent (const TextDocument& document) : document (document)
 {
     setInterceptsMouseClicks (false, false);
 }
@@ -217,9 +217,9 @@ void mcl::HighlightComponent::setViewTransform (const AffineTransform& transform
     outlinePath.clear();
     auto clip = getLocalBounds().toFloat().transformedBy (transform.inverted());
     
-    for (const auto& s : layout.getSelections())
+    for (const auto& s : document.getSelections())
     {
-        outlinePath.addPath (getOutlinePath (layout.getSelectionRegion (s, clip)));
+        outlinePath.addPath (getOutlinePath (document.getSelectionRegion (s, clip)));
     }
     repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
@@ -229,9 +229,9 @@ void mcl::HighlightComponent::updateSelections()
     outlinePath.clear();
     auto clip = getLocalBounds().toFloat().transformedBy (transform.inverted());
 
-    for (const auto& s : layout.getSelections())
+    for (const auto& s : document.getSelections())
     {
-        outlinePath.addPath (getOutlinePath (layout.getSelectionRegion (s, clip)));
+        outlinePath.addPath (getOutlinePath (document.getSelectionRegion (s, clip)));
     }
     repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
@@ -327,18 +327,18 @@ mcl::Selection mcl::Selection::swapped() const
     return s;
 }
 
-mcl::Selection mcl::Selection::horizontallyMaximized (const TextLayout& layout) const
+mcl::Selection mcl::Selection::horizontallyMaximized (const TextDocument& document) const
 {
     Selection s = *this;
 
     if (isOriented())
     {
         s.head.y = 0;
-        s.tail.y = layout.getNumColumns (s.tail.x);
+        s.tail.y = document.getNumColumns (s.tail.x);
     }
     else
     {
-        s.head.y = layout.getNumColumns (s.head.x);
+        s.head.y = document.getNumColumns (s.head.x);
         s.tail.y = 0;
     }
     return s;
@@ -521,7 +521,7 @@ void mcl::GlyphArrangementArray::invalidateAll()
 
 
 //==============================================================================
-void mcl::TextLayout::replaceAll (const String& content)
+void mcl::TextDocument::replaceAll (const String& content)
 {
     lines.clear();
 
@@ -531,17 +531,17 @@ void mcl::TextLayout::replaceAll (const String& content)
     }
 }
 
-int mcl::TextLayout::getNumRows() const
+int mcl::TextDocument::getNumRows() const
 {
     return lines.size();
 }
 
-int mcl::TextLayout::getNumColumns (int row) const
+int mcl::TextDocument::getNumColumns (int row) const
 {
     return lines[row].length();
 }
 
-float mcl::TextLayout::getVerticalPosition (int row, Metric metric) const
+float mcl::TextDocument::getVerticalPosition (int row, Metric metric) const
 {
     float lineHeight = font.getHeight() * lineSpacing;
     float gap = font.getHeight() * (lineSpacing - 1.f) * 0.5f;
@@ -556,12 +556,12 @@ float mcl::TextLayout::getVerticalPosition (int row, Metric metric) const
     }
 }
 
-Point<float> mcl::TextLayout::getPosition (Point<int> index, Metric metric) const
+Point<float> mcl::TextDocument::getPosition (Point<int> index, Metric metric) const
 {
     return Point<float> (getGlyphBounds (index).getX(), getVerticalPosition (index.x, metric));
 }
 
-Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection, Rectangle<float> clip) const
+Array<Rectangle<float>> mcl::TextDocument::getSelectionRegion (Selection selection, Rectangle<float> clip) const
 {
     Array<Rectangle<float>> patches;
     Selection s = selection.oriented();
@@ -596,7 +596,7 @@ Array<Rectangle<float>> mcl::TextLayout::getSelectionRegion (Selection selection
     return patches;
 }
 
-Rectangle<float> mcl::TextLayout::getBounds() const
+Rectangle<float> mcl::TextDocument::getBounds() const
 {
     if (cachedBounds.isEmpty())
     {
@@ -611,7 +611,7 @@ Rectangle<float> mcl::TextLayout::getBounds() const
     return cachedBounds;
 }
 
-Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) const
+Rectangle<float> mcl::TextDocument::getBoundsOnRow (int row, Range<int> columns) const
 {
     return getGlyphsForRow (row, -1, true)
         .getBoundingBox    (columns.getStart(), columns.getLength(), true)
@@ -619,13 +619,13 @@ Rectangle<float> mcl::TextLayout::getBoundsOnRow (int row, Range<int> columns) c
         .withBottom        (getVerticalPosition (row, Metric::bottom));
 }
 
-Rectangle<float> mcl::TextLayout::getGlyphBounds (Point<int> index) const
+Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
 {
     index.y = jlimit (0, getNumColumns (index.x), index.y);
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
+GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
 {
     auto columns = SparseSet<int>();
     auto ncol = getNumColumns (row) + withTrailingSpace;
@@ -650,7 +650,7 @@ GlyphArrangement mcl::TextLayout::getGlyphsForRow (int row, int style, bool with
                             columns, withTrailingSpace);
 }
 
-GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area, int style) const
+GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int style) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
@@ -664,8 +664,8 @@ GlyphArrangement mcl::TextLayout::findGlyphsIntersecting (Rectangle<float> area,
     return glyphs;
 }
 
-Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (Rectangle<float> area,
-                                                                       bool computeHorizontalExtent) const
+Array<mcl::TextDocument::RowData> mcl::TextDocument::findRowsIntersecting (Rectangle<float> area,
+                                                                           bool computeHorizontalExtent) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
@@ -700,7 +700,7 @@ Array<mcl::TextLayout::RowData> mcl::TextLayout::findRowsIntersecting (Rectangle
     return rows;
 }
 
-juce::Array<mcl::Selection> mcl::TextLayout::findStyleZonesIntersecting (int row, int style) const
+juce::Array<mcl::Selection> mcl::TextDocument::findStyleZonesIntersecting (int row, int style) const
 {
     juce::Array<mcl::Selection> zones;
 
@@ -714,7 +714,7 @@ juce::Array<mcl::Selection> mcl::TextLayout::findStyleZonesIntersecting (int row
     return zones;
 }
 
-Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) const
+Point<int> mcl::TextDocument::findIndexNearestPosition (Point<float> position) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row = jlimit (0, jmax (getNumRows() - 1, 0), int (position.y / lineHeight));
@@ -737,12 +737,12 @@ Point<int> mcl::TextLayout::findIndexNearestPosition (Point<float> position) con
     return { row, col };
 }
 
-Point<int> mcl::TextLayout::getEnd() const
+Point<int> mcl::TextDocument::getEnd() const
 {
     return { getNumRows(), 0 };
 }
 
-bool mcl::TextLayout::next (Point<int>& index) const
+bool mcl::TextDocument::next (Point<int>& index) const
 {
     if (index.y < getNumColumns (index.x))
     {
@@ -758,7 +758,7 @@ bool mcl::TextLayout::next (Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::prev (Point<int>& index) const
+bool mcl::TextDocument::prev (Point<int>& index) const
 {
     if (index.y > 0)
     {
@@ -774,7 +774,7 @@ bool mcl::TextLayout::prev (Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::nextRow (Point<int>& index) const
+bool mcl::TextDocument::nextRow (Point<int>& index) const
 {
     if (index.x < getNumRows())
     {
@@ -785,7 +785,7 @@ bool mcl::TextLayout::nextRow (Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::prevRow (Point<int>& index) const
+bool mcl::TextDocument::prevRow (Point<int>& index) const
 {
     if (index.x > 0)
     {
@@ -796,7 +796,7 @@ bool mcl::TextLayout::prevRow (Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::nextWord (Point<int>& index) const
+bool mcl::TextDocument::nextWord (Point<int>& index) const
 {
     if (index == getEnd())
     {
@@ -813,7 +813,7 @@ bool mcl::TextLayout::nextWord (Point<int>& index) const
     return false;
 }
 
-bool mcl::TextLayout::prevWord (Point<int>& index) const
+bool mcl::TextDocument::prevWord (Point<int>& index) const
 {
     if (! prev (index))
         return false;
@@ -832,7 +832,7 @@ bool mcl::TextLayout::prevWord (Point<int>& index) const
     return false;
 }
 
-juce_wchar mcl::TextLayout::getCharacter (Point<int> index) const
+juce_wchar mcl::TextDocument::getCharacter (Point<int> index) const
 {
     jassert (0 <= index.x && index.x <= lines.size());
     jassert (0 <= index.y && index.y <= lines[index.x].length());
@@ -844,7 +844,7 @@ juce_wchar mcl::TextLayout::getCharacter (Point<int> index) const
     return  lines[index.x].getCharPointer()[index.y];
 }
 
-mcl::Selection mcl::TextLayout::getSelection (int index, Navigation navigation, bool fixingTail) const
+mcl::Selection mcl::TextDocument::getSelection (int index, Navigation navigation, bool fixingTail) const
 {
     auto s = selections[index];
 
@@ -878,7 +878,7 @@ mcl::Selection mcl::TextLayout::getSelection (int index, Navigation navigation, 
     }
 }
 
-Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, bool fixingTail) const
+Array<mcl::Selection> mcl::TextDocument::getSelections (Navigation navigation, bool fixingTail) const
 {
     auto resultingSelections = Array<Selection>();
     resultingSelections.ensureStorageAllocated (getNumSelections());
@@ -890,7 +890,7 @@ Array<mcl::Selection> mcl::TextLayout::getSelections (Navigation navigation, boo
     return resultingSelections;
 }
 
-String mcl::TextLayout::getSelectionContent (Selection s) const
+String mcl::TextDocument::getSelectionContent (Selection s) const
 {
     s = s.oriented();
 
@@ -911,7 +911,7 @@ String mcl::TextLayout::getSelectionContent (Selection s) const
     }
 }
 
-mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
+mcl::Transaction mcl::TextDocument::fulfill (const Transaction& transaction)
 {
     cachedBounds = {}; // invalidate the bounds
 
@@ -959,24 +959,24 @@ mcl::Transaction mcl::TextLayout::fulfill (const Transaction& transaction)
 class mcl::Transaction::Undoable : public UndoableAction
 {
 public:
-    Undoable (TextLayout& layout, Callback callback, Transaction forward)
-    : layout (layout)
+    Undoable (TextDocument& document, Callback callback, Transaction forward)
+    : document (document)
     , callback (callback)
     , forward (forward) {}
 
     bool perform() override
     {
-        callback (reverse = layout.fulfill (forward));
+        callback (reverse = document.fulfill (forward));
         return true;
     }
 
     bool undo() override
     {
-        callback (forward = layout.fulfill (reverse));
+        callback (forward = document.fulfill (reverse));
         return true;
     }
 
-    TextLayout& layout;
+    TextDocument& document;
     Callback callback;
     Transaction forward;
     Transaction reverse;
@@ -986,7 +986,7 @@ public:
 
 
 //==============================================================================
-mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLayout& layout) const
+mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextDocument& document) const
 {
     Transaction t = *this;
     auto& s = t.selection;
@@ -999,7 +999,7 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
     {
         if (s.head.y == s.tail.y)
         {
-            layout.prev (s.head);
+            document.prev (s.head);
         }
         t.content.clear();
     }
@@ -1007,16 +1007,16 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextLay
     {
         if (s.head.y == s.tail.y)
         {
-            layout.next (s.head);
+            document.next (s.head);
         }
         t.content.clear();
     }
     return t;
 }
 
-UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callback)
+UndoableAction* mcl::Transaction::on (TextDocument& document, Callback callback)
 {
-    return new Undoable (layout, callback, *this);
+    return new Undoable (document, callback, *this);
 }
 
 
@@ -1024,12 +1024,12 @@ UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callback)
 
 //==============================================================================
 mcl::TextEditor::TextEditor()
-: caret (layout)
-, gutter (layout)
-, highlight (layout)
+: caret (document)
+, gutter (document)
+, highlight (document)
 {
     lastTransactionTime = Time::getApproximateMillisecondCounter();
-    layout.setSelections ({ Selection() });
+    document.setSelections ({ Selection() });
 
     setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
 
@@ -1047,21 +1047,21 @@ mcl::TextEditor::~TextEditor()
 
 void mcl::TextEditor::setFont (Font font)
 {
-    layout.setFont (font);
+    document.setFont (font);
     gutter.cacheLineNumberGlyphs();
     repaint();
 }
 
 void mcl::TextEditor::setText (const String& text)
 {
-    layout.replaceAll (text);
+    document.replaceAll (text);
     repaint();
 }
 
 void mcl::TextEditor::translateView (float dx, float dy)
 {
-    auto W = viewScaleFactor * layout.getBounds().getWidth();
-    auto H = viewScaleFactor * layout.getBounds().getHeight();
+    auto W = viewScaleFactor * document.getBounds().getWidth();
+    auto H = viewScaleFactor * document.getBounds().getHeight();
 
     translation.x = jlimit (jmin (GUTTER_WIDTH, -W + getWidth()), GUTTER_WIDTH, translation.x + dx);
     translation.y = jlimit (jmin (-0.f, -H + getHeight()), 0.0f, translation.y + dy);
@@ -1093,9 +1093,9 @@ void mcl::TextEditor::updateSelections()
 
 void mcl::TextEditor::translateToEnsureCaretIsVisible()
 {
-    auto i = layout.getSelections().getFirst().head;
-    auto t = Point<float> (0.f, layout.getVerticalPosition (i.x, TextLayout::Metric::top))   .transformedBy (transform);
-    auto b = Point<float> (0.f, layout.getVerticalPosition (i.x, TextLayout::Metric::bottom)).transformedBy (transform);
+    auto i = document.getSelections().getFirst().head;
+    auto t = Point<float> (0.f, document.getVerticalPosition (i.x, TextDocument::Metric::top))   .transformedBy (transform);
+    auto b = Point<float> (0.f, document.getVerticalPosition (i.x, TextDocument::Metric::bottom)).transformedBy (transform);
 
     if (t.y < 0.f)
     {
@@ -1188,8 +1188,8 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
         return;
     }
 
-    auto selections = layout.getSelections();
-    auto index = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
+    auto selections = document.getSelections();
+    auto index = document.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
 
     if (selections.contains (index))
     {
@@ -1201,7 +1201,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     }
 
     selections.add (index);
-    layout.setSelections (selections);
+    document.setSelections (selections);
     updateSelections();
 }
 
@@ -1209,9 +1209,9 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 {
     if (e.mouseWasDraggedSinceMouseDown())
     {
-        auto selection = layout.getSelections().getFirst();
-        selection.head = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
-        layout.setSelections ({ selection });
+        auto selection = document.getSelections().getFirst();
+        selection.head = document.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
+        document.setSelections ({ selection });
         translateToEnsureCaretIsVisible();
         updateSelections();
     }
@@ -1221,11 +1221,11 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     if (e.getNumberOfClicks() == 2)
     {
-        layout.setSelections (layout.getSelections (TextLayout::Navigation::wholeWord, true).getFirst());
+        document.setSelections (document.getSelections (TextDocument::Navigation::wholeWord, true).getFirst());
     }
     else if (e.getNumberOfClicks() == 3)
     {
-        layout.setSelections (layout.getSelections (TextLayout::Navigation::wholeLine, true).getFirst());
+        document.setSelections (document.getSelections (TextDocument::Navigation::wholeLine, true).getFirst());
     }
     updateSelections();
 }
@@ -1250,33 +1250,33 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
-    using Navigation = TextLayout::Navigation;
+    using Navigation = TextDocument::Navigation;
 
-    auto nav = [this] (TextLayout::Navigation navigation)
+    auto nav = [this] (TextDocument::Navigation navigation)
     {
-        layout.setSelections (layout.getSelections (navigation));
+        document.setSelections (document.getSelections (navigation));
         translateToEnsureCaretIsVisible();
         updateSelections();
         return true;
     };
 
-    auto expand = [this] (TextLayout::Navigation navigation)
+    auto expand = [this] (TextDocument::Navigation navigation)
     {
-        layout.setSelections (layout.getSelections (navigation, true));
+        document.setSelections (document.getSelections (navigation, true));
         updateSelections();
         return true;
     };
 
-    auto addCaret = [this] (TextLayout::Navigation navigation)
+    auto addCaret = [this] (TextDocument::Navigation navigation)
     {
-        layout.addSelection (layout.getSelection (layout.getNumSelections() - 1, navigation));
+        document.addSelection (document.getSelection (document.getNumSelections() - 1, navigation));
         updateSelections();
         return true;
     };
 
     if (key.isKeyCode (KeyPress::escapeKey))
     {
-        layout.setSelections (layout.getSelections().getLast());
+        document.setSelections (document.getSelections().getLast());
         updateSelections();
         return true;
     }
@@ -1323,18 +1323,18 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
             undo.beginNewTransaction();
         }
 
-        for (int n = 0; n < layout.getNumSelections(); ++n)
+        for (int n = 0; n < document.getNumSelections(); ++n)
         {
             Transaction t;
             t.content = insertion;
-            t.selection = layout.getSelection (n);
+            t.selection = document.getSelection (n);
 
             auto callback = [this, n] (const Transaction& r)
             {
                 switch (r.direction) // NB: switching on the direction of the reciprocal here
                 {
-                    case Transaction::Direction::forward: layout.setSelection (n, r.selection); break;
-                    case Transaction::Direction::reverse: layout.setSelection (n, r.selection.tail); break;
+                    case Transaction::Direction::forward: document.setSelection (n, r.selection); break;
+                    case Transaction::Direction::reverse: document.setSelection (n, r.selection.tail); break;
                 }
 
                 if (! r.affectedArea.isEmpty())
@@ -1342,7 +1342,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
                     repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
                 }
             };
-            undo.perform (t.on (layout, callback));
+            undo.perform (t.on (document, callback));
         }
         updateSelections();
         return true;
@@ -1352,12 +1352,12 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
     if (key == KeyPress ('x', ModifierKeys::commandModifier, 0))
     {
-        SystemClipboard::copyTextToClipboard (layout.getSelectionContent (layout.getSelections().getFirst()));
+        SystemClipboard::copyTextToClipboard (document.getSelectionContent (document.getSelections().getFirst()));
         return insert ("");
     }
     if (key == KeyPress ('c', ModifierKeys::commandModifier, 0))
     {
-        SystemClipboard::copyTextToClipboard (layout.getSelectionContent (layout.getSelections().getFirst()));
+        SystemClipboard::copyTextToClipboard (document.getSelectionContent (document.getSelections().getFirst()));
         return true;
     }
 
@@ -1380,15 +1380,18 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 //==============================================================================
 void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
 {
+    /*
+     Credit to chrisboy2000 for this
+     */
     auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
-    auto originalHeight = layout.getFont().getHeight();
-    auto font = layout.getFont().withHeight (originalHeight * transform.getScaleFactor());
-    auto rows = layout.findRowsIntersecting (g.getClipBounds().toFloat().transformedBy (transform.inverted()));
+    auto originalHeight = document.getFont().getHeight();
+    auto font = document.getFont().withHeight (originalHeight * transform.getScaleFactor());
+    auto rows = document.findRowsIntersecting (g.getClipBounds().toFloat().transformedBy (transform.inverted()));
 
     for (const auto& r: rows)
     {
-        auto line = layout.getLine (r.rowNumber);
-        auto bounds = layout.getBoundsOnRow (r.rowNumber, {0, 1000}).transformedBy (transform);
+        auto line = document.getLine (r.rowNumber);
+        auto bounds = document.getBoundsOnRow (r.rowNumber, {0, 1000}).transformedBy (transform);
 
         AttributedString s;
 
@@ -1420,7 +1423,7 @@ void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
 
 void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 {
-    layout.findGlyphsIntersecting (g.getClipBounds()
+    document.findGlyphsIntersecting (g.getClipBounds()
                                    .toFloat()
                                    .transformedBy (transform.inverted())
                                    ).draw (g, transform);

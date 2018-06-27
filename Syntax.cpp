@@ -75,7 +75,7 @@ private:
 
 
 //==============================================================================
-mcl::Scanner::Scanner (const TextLayout& layout) : layout (layout)
+mcl::Scanner::Scanner (const TextDocument& document) : document (document)
 {
 }
 
@@ -95,9 +95,9 @@ void mcl::Scanner::clear()
 
 bool mcl::Scanner::next()
 {
-    while (index.x < layout.getNumRows())
+    while (index.x < document.getNumRows())
     {
-        auto result = Pattern::searchMany (patterns, layout.getLine (index.x), index.y);
+        auto result = Pattern::searchMany (patterns, document.getLine (index.x), index.y);
 
         if (result.token.isValid())
         {
