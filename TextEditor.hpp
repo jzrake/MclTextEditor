@@ -92,20 +92,21 @@ struct mcl::Selection
             : head.x >= row && row >= tail.x;
     }
 
-    /** Return the range of columns this selection covers on the given row. */
+    /** Return the range of columns this selection covers on the given row.
+     */
     juce::Range<int> getColumnRangeOnRow (int row, int numColumns) const
     {
         const auto A = oriented();
 
         if (row < A.head.x || row > A.tail.x)
-            return {};
+            return { 0, 0 };
         if (row == A.head.x && row == A.tail.x)
             return { A.head.y, A.tail.y };
         if (row == A.head.x)
             return { A.head.y, numColumns };
         if (row == A.tail.x)
             return { 0, A.tail.y };
-        return {};
+        return { 0, numColumns };
     }
 
     /** Whether the head precedes the tail. */
@@ -156,8 +157,6 @@ struct mcl::Selection
         this selection.
      */
     void push (juce::Point<int>& index) const;
-
-    static juce::SparseSet<int> createSparseSetOnRow (int row, int numColumns, const juce::Array<Selection>& selections);
 
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
@@ -279,7 +278,7 @@ public:
         juce::juce_wchar peekNextChar() noexcept  { return t; }
         void skip() noexcept                      { if (! isEOF()) { document->next (index); t = get(); } }
         void skipWhitespace() noexcept            { while (! isEOF() && juce::CharacterFunctions::isWhitespace (t)) skip(); }
-        void skipToEndOfLine() noexcept           { while (! isEOF() && t != '\n') skip(); }
+        void skipToEndOfLine() noexcept           { while (t != '\r' && t != '\n' && t != 0) skip(); }
         bool isEOF() const noexcept               { return index == document->getEnd(); }
         const juce::Point<int>& getIndex() const noexcept { return index; }
     private:

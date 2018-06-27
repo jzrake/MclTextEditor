@@ -450,17 +450,6 @@ void mcl::Selection::push (Point<int>& index) const
     }
 }
 
-SparseSet<int> mcl::Selection::createSparseSetOnRow (int row, int numColumns, const Array<Selection>& selections)
-{
-    SparseSet<int> set;
-
-    for (const auto& selection : selections)
-    {
-        set.addRange (selection.getColumnRangeOnRow (row, numColumns));
-    }
-    return set;
-}
-
 
 
 
@@ -556,6 +545,7 @@ void mcl::GlyphArrangementArray::ensureValid (int index) const
         entry.styleMask.resize (entry.string.length());
         entry.dirty = false;
     }
+    jassert (entry.string.length() == entry.styleMask.size());
 }
 
 void mcl::GlyphArrangementArray::invalidateAll()
@@ -1325,7 +1315,7 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
     {
         dx = 0.f;
     }
-    translateView (dx * 600, d.deltaY * 600);
+    translateView (dx * 400, d.deltaY * 800);
 }
 
 void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
@@ -1579,34 +1569,39 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
     g.saveState();
     g.addTransform (transform);
 
-    auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
-    auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
-
-    auto zones = Array<Selection>();
-    auto it = TextDocument::Iterator (document, { rows.getStart(), 0 });
-    auto previous = it.getIndex();
-    auto start = Time::getMillisecondCounterHiRes();
-
-    while (it.getIndex().x < rows.getEnd() && ! it.isEOF())
+    if (enableSyntaxHighlighting)
     {
-        // DBG(it.getIndex().toString() << " " << rows.getStart() << " " << rows.getEnd());
-        auto tokenType = CppTokeniserFunctions::readNextToken (it);
-        zones.add (Selection (previous, it.getIndex()).withStyle (tokenType));
-        previous = it.getIndex();
+        auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
+        auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+
+        auto zones = Array<Selection>();
+        auto it = TextDocument::Iterator (document, { rows.getStart(), 0 });
+        auto previous = it.getIndex();
+
+        auto start = Time::getMillisecondCounterHiRes();
+
+        while (it.getIndex().x < rows.getEnd() && ! it.isEOF())
+        {
+            auto tokenType = CppTokeniserFunctions::readNextToken (it);
+            zones.add (Selection (previous, it.getIndex()).withStyle (tokenType));
+            previous = it.getIndex();
+        }
+        document.clearStyleMask (rows);
+        document.applyStyleMask (rows, zones);
+
+        lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
+
+        for (int n = 0; n < colourScheme.types.size(); ++n)
+        {
+            g.setColour (colourScheme.types[n].colour);
+            document.findGlyphsIntersecting (g.getClipBounds().toFloat(), n).draw (g);
+        }
     }
-
-    document.clearStyleMask (rows);
-    document.applyStyleMask (rows, zones);
-
-    lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
-
-    for (int n = 0; n < colourScheme.types.size(); ++n)
+    else
     {
-        g.setColour (colourScheme.types[n].colour);
-        document.findGlyphsIntersecting (g.getClipBounds().toFloat(), n).draw (g);
+        lastTokeniserTime = 0.f;
+        document.findGlyphsIntersecting (g.getClipBounds().toFloat()).draw (g);
     }
-
-    // document.findGlyphsIntersecting (g.getClipBounds().toFloat()).draw (g);
     g.restoreState();
 }
 
