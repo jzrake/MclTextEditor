@@ -286,6 +286,9 @@ public:
     /** Get the current font. */
     juce::Font getFont() const { return font; }
 
+    /** Get the line spacing. */
+    float getLineSpacing() const { return lineSpacing; }
+
     /** Set the font to be applied to all text. */
     void setFont (juce::Font fontToUse) { font = fontToUse; }
 
@@ -428,7 +431,7 @@ public:
     Transaction fulfill (const Transaction& transaction);
 
 private:
-    float lineSpacing = 1.25f;
+    float lineSpacing = 1.33f;
     mutable juce::Rectangle<float> cachedBounds;
     GlyphArrangementArray lines;
     //    juce::StringArray lines;
@@ -517,6 +520,7 @@ class mcl::TextEditor : public juce::Component
 {
 public:
     enum class RenderScheme {
+        usingAttributedStringSingle,
         usingAttributedString,
         usingGlyphArrangement,
     };
@@ -548,6 +552,7 @@ private:
     void scanAndSetStyleZones();
 
     //==========================================================================
+    void renderTextUsingAttributedStringSingle (juce::Graphics& g);
     void renderTextUsingAttributedString (juce::Graphics& g);
     void renderTextUsingGlyphArrangement (juce::Graphics& g);
     void resetProfilingData();

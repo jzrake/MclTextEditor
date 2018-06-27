@@ -1124,6 +1124,10 @@ void mcl::TextEditor::paint (Graphics& g)
 
     switch (renderScheme)
     {
+        case RenderScheme::usingAttributedStringSingle:
+            renderTextUsingAttributedStringSingle (g);
+            renderSchemeString = "AttributedStringSingle";
+            break;
         case RenderScheme::usingAttributedString:
             renderTextUsingAttributedString (g);
             renderSchemeString = "attr. str";
@@ -1171,17 +1175,19 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     {
         PopupMenu menu;
 
-        menu.addItem (1, "Render scheme: attr. str", true, renderScheme == RenderScheme::usingAttributedString, nullptr);
-        menu.addItem (2, "Render scheme: glyph arr.", true, renderScheme == RenderScheme::usingGlyphArrangement, nullptr);
-        menu.addItem (3, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
-        menu.addItem (4, "Draw profiling info", true, drawProfilingInfo, nullptr);
+        menu.addItem (1, "Render scheme: AttributedStringSingle", true, renderScheme == RenderScheme::usingAttributedStringSingle, nullptr);
+        menu.addItem (2, "Render scheme: AttributedString", true, renderScheme == RenderScheme::usingAttributedString, nullptr);
+        menu.addItem (3, "Render scheme: GlyphArrangement", true, renderScheme == RenderScheme::usingGlyphArrangement, nullptr);
+        menu.addItem (4, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
+        menu.addItem (5, "Draw profiling info", true, drawProfilingInfo, nullptr);
 
         switch (menu.show())
         {
-            case 1: renderScheme = RenderScheme::usingAttributedString; break;
-            case 2: renderScheme = RenderScheme::usingGlyphArrangement; break;
-            case 3: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
-            case 4: drawProfilingInfo = ! drawProfilingInfo; break;
+            case 1: renderScheme = RenderScheme::usingAttributedStringSingle; break;
+            case 2: renderScheme = RenderScheme::usingAttributedString; break;
+            case 3: renderScheme = RenderScheme::usingGlyphArrangement; break;
+            case 4: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
+            case 5: drawProfilingInfo = ! drawProfilingInfo; break;
         }
         resetProfilingData();
         repaint();
@@ -1378,6 +1384,30 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 
 
 //==============================================================================
+void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
+{
+    g.saveState();
+    g.addTransform (transform);
+
+    auto rows = document.findRowsIntersecting (g.getClipBounds().toFloat());
+    auto r0 = rows.getFirst().rowNumber;
+    auto r1 = rows.getLast().rowNumber;
+    auto T = document.getVerticalPosition (r0, TextDocument::Metric::top);
+    auto B = document.getVerticalPosition (r1, TextDocument::Metric::bottom);
+    auto W = 1000;
+    auto bounds = Rectangle<float>::leftTopRightBottom (0, T, W, B);
+    auto content = document.getSelectionContent (Selection (r0, 0, r1, 0));
+
+    AttributedString s;
+
+    // PROBLEM: how is line spacing defined in AttributedString?
+    s.setLineSpacing ((document.getLineSpacing() - 1.08f) * document.getFont().getHeight());
+
+    s.append (content, document.getFont());
+    s.draw (g, bounds);
+    g.restoreState();
+}
+
 void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
 {
     /*
@@ -1391,7 +1421,9 @@ void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
     for (const auto& r: rows)
     {
         auto line = document.getLine (r.rowNumber);
-        auto bounds = document.getBoundsOnRow (r.rowNumber, {0, 1000}).transformedBy (transform);
+        auto T = document.getVerticalPosition (r.rowNumber, TextDocument::Metric::ascent);
+        auto B = document.getVerticalPosition (r.rowNumber, TextDocument::Metric::bottom);
+        auto bounds = Rectangle<float>::leftTopRightBottom (0.f, T, 1000.f, B).transformedBy (transform);
 
         AttributedString s;
 
