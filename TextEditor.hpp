@@ -211,13 +211,18 @@ public:
     void insert (int index, const juce::String& string) { lines.insert (index, string); }
     void removeRange (int startIndex, int numberToRemove) { lines.removeRange (startIndex, numberToRemove); }
     const juce::String& operator[] (int index) const;
+
+    void clearStyleMask (int index);
+    void applyStyleMask (int index, Selection zone);
     juce::GlyphArrangement getGlyphs (int index,
                                       juce::Font font,
                                       float baseline,
-                                      juce::SparseSet<int> columns,
+                                      int style,
                                       bool withTrailingSpace=false) const;
 private:
+    void ensureValid (int index, juce::Font font) const;
     void invalidateAll();
+
     struct Entry
     {
         Entry() {}
@@ -225,9 +230,9 @@ private:
         juce::String string;
         juce::GlyphArrangement glyphsWithTrailingSpace;
         juce::GlyphArrangement glyphs;
+        juce::Array<int> styleMask;
         bool dirty = true;
     };
-    juce::Font font;
     mutable juce::Array<Entry> lines;
 };
 
@@ -322,13 +327,18 @@ public:
     /** Return the position of the glyph at the given row and column. */
     juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
 
-    /** Return a glyph arrangement for the given row. */
-    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false) const;
+    /** Return a glyph arrangement for the given row. If style != -1, then
+     only glyphs with that style mask are returned.
+     */
+    juce::GlyphArrangement getGlyphsForRow (int row, int style=-1, bool withTrailingSpace=false) const;
 
     /** Return all glyphs whose bounding boxes intersect the given area. This method
-        may be generous (including glyphs that don't intersect).
+        may be generous (including glyphs that don't intersect). If style != -1, then
+        only glyphs with that style mask are returned.
      */
-    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area) const;
+    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, int style=-1) const;
+
+    juce::Range<int> getRangeOfRowsIntersecting (juce::Rectangle<float> area) const;
 
     /** Return data on the rows intersecting the given area. This is sort
         of a convenience method for calling getBoundsOnRow() over a range,
@@ -397,6 +407,11 @@ public:
         identified in the transaction does not need to exist in the document.
      */
     Transaction fulfill (const Transaction& transaction);
+
+    void clearStyleMask (juce::Range<int> rows);
+
+    /** Apply the given zones to the style mask of glyphs in the document. */
+    void applyStyleMask (juce::Range<int> rows, const juce::Array<Selection>& zones);
 
     bool cacheGlyphArrangement = true;
 
@@ -518,7 +533,6 @@ private:
     void updateViewTransform();
     void updateSelections();
     void translateToEnsureCaretIsVisible();
-    void scanAndSetStyleZones();
 
     //==========================================================================
     void renderTextUsingAttributedStringSingle (juce::Graphics& g);
@@ -533,7 +547,7 @@ private:
     float lastTimeInPaint = 0.f;
     float lastTokeniserTime = 0.f;
     int numPaintCalls = 0;
-    RenderScheme renderScheme = RenderScheme::usingAttributedString;
+    RenderScheme renderScheme = RenderScheme::usingGlyphArrangement;
 
     //==========================================================================
     double lastTransactionTime;

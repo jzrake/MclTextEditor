@@ -476,30 +476,56 @@ const String& mcl::GlyphArrangementArray::operator[] (int index) const
     return empty;
 }
 
+void mcl::GlyphArrangementArray::clearStyleMask (int index)
+{
+    auto& entry = lines.getReference (index);
+
+    jassert (! entry.dirty);
+
+    for (int col = 0; col < entry.styleMask.size(); ++col)
+    {
+        entry.styleMask.setUnchecked (col, 0);
+    }
+}
+
+void mcl::GlyphArrangementArray::applyStyleMask (int index, Selection zone)
+{
+    auto& entry = lines.getReference (index);
+    auto range = zone.getColumnRangeOnRow (index, entry.styleMask.size());
+
+    jassert (! entry.dirty);
+
+    for (int col = range.getStart(); col < range.getEnd(); ++col)
+    {
+        entry.styleMask.setUnchecked (col, zone.style);
+    }
+}
+
 GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
                                                         Font font,
                                                         float baseline,
-                                                        SparseSet<int> columns,
+                                                        int style,
                                                         bool withTrailingSpace) const
 {
-    static Entry empty;
-    auto& entry = isPositiveAndBelow (index, lines.size()) ? lines.getReference (index) : empty;
-
-    if (entry.dirty)
+    if (! isPositiveAndBelow (index, lines.size()))
     {
-        entry.glyphs.clear();
-        entry.glyphsWithTrailingSpace.clear();
-        entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
-        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
-        entry.dirty = false;
-    }
+        GlyphArrangement glyphs;
 
+        if (withTrailingSpace)
+        {
+            glyphs.addLineOfText (font, " ", 0.f, baseline);
+        }
+        return glyphs;
+    }
+    ensureValid (index, font);
+
+    auto& entry = lines.getReference (index);
     auto& glyphSource = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
     auto glyphs = GlyphArrangement();
 
     for (int n = 0; n < glyphSource.getNumGlyphs(); ++n)
     {
-        if (columns.contains (n))
+        if (style == -1 || entry.styleMask.getUnchecked (n) == style)
         {
             auto glyph = glyphSource.getGlyph (n);
             glyph.moveBy (0.f, baseline);
@@ -507,6 +533,24 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
         }
     }
     return glyphs;
+}
+
+void mcl::GlyphArrangementArray::ensureValid (int index, juce::Font font) const
+{
+    if (! isPositiveAndBelow (index, lines.size()))
+        return;
+
+    auto& entry = lines.getReference (index);
+
+    if (entry.dirty)
+    {
+        entry.glyphs.clear();
+        entry.glyphsWithTrailingSpace.clear();
+        entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
+        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
+        entry.styleMask.resize (entry.string.length());
+        entry.dirty = false;
+    }
 }
 
 void mcl::GlyphArrangementArray::invalidateAll()
@@ -613,7 +657,7 @@ Rectangle<float> mcl::TextDocument::getBounds() const
 
 Rectangle<float> mcl::TextDocument::getBoundsOnRow (int row, Range<int> columns) const
 {
-    return getGlyphsForRow (row, true)
+    return getGlyphsForRow (row, -1, true)
         .getBoundingBox    (columns.getStart(), columns.getLength(), true)
         .withTop           (getVerticalPosition (row, Metric::top))
         .withBottom        (getVerticalPosition (row, Metric::bottom));
@@ -625,20 +669,18 @@ Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, bool withTrailingSpace) const
+GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
 {
     if (cacheGlyphArrangement)
     {
-        SparseSet<int> columns;
-        columns.addRange ({0, getNumColumns (row) + withTrailingSpace});
-
         return lines.getGlyphs (row,
                                 font,
                                 getVerticalPosition (row, Metric::baseline),
-                                columns, withTrailingSpace);
+                                style,
+                                withTrailingSpace);
     }
     GlyphArrangement glyphs;
-    
+
     if (withTrailingSpace)
     {
         glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
@@ -650,29 +692,34 @@ GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, bool withTrailingS
     return glyphs;
 }
 
-GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area) const
+GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int style) const
+{
+    auto range = getRangeOfRowsIntersecting (area);
+    auto rows = Array<RowData>();
+    auto glyphs = GlyphArrangement();
+
+    for (int n = range.getStart(); n < range.getEnd(); ++n)
+    {
+        glyphs.addGlyphArrangement (getGlyphsForRow (n, style));
+    }
+    return glyphs;
+}
+
+juce::Range<int> mcl::TextDocument::getRangeOfRowsIntersecting (juce::Rectangle<float> area) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
     auto row1 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getBottom() / lineHeight));
-    auto glyphs = GlyphArrangement();
-
-    for (int n = row0; n <= row1; ++n)
-    {
-        glyphs.addGlyphArrangement (getGlyphsForRow (n));
-    }
-    return glyphs;
+    return { row0, row1 + 1 };
 }
 
 Array<mcl::TextDocument::RowData> mcl::TextDocument::findRowsIntersecting (Rectangle<float> area,
                                                                            bool computeHorizontalExtent) const
 {
-    auto lineHeight = font.getHeight() * lineSpacing;
-    auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
-    auto row1 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getBottom() / lineHeight));
+    auto range = getRangeOfRowsIntersecting (area);
     auto rows = Array<RowData>();
 
-    for (int n = row0; n <= row1; ++n)
+    for (int n = range.getStart(); n < range.getEnd(); ++n)
     {
         RowData data;
         data.rowNumber = n;
@@ -790,22 +837,31 @@ bool mcl::TextDocument::nextWord (Point<int>& index) const
     }
 
     if (CharacterFunctions::isWhitespace (getCharacter (index)))
+    {
         while (next (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
+    }
 
     while (next (index))
+    {
         if (CharacterFunctions::isWhitespace (getCharacter (index)))
+        {
             return true;
-
+        }
+    }
     return false;
 }
 
 bool mcl::TextDocument::prevWord (Point<int>& index) const
 {
     if (! prev (index))
+    {
         return false;
+    }
 
     if (CharacterFunctions::isWhitespace (getCharacter (index)))
+    {
         while (prev (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
+    }
 
     while (prev (index))
     {
@@ -936,6 +992,28 @@ mcl::Transaction mcl::TextDocument::fulfill (const Transaction& transaction)
     r.direction = t.direction == D::forward ? D::reverse : D::forward;
 
     return r;
+}
+
+void mcl::TextDocument::clearStyleMask (juce::Range<int> rows)
+{
+    for (int n = rows.getStart(); n < rows.getEnd(); ++n)
+    {
+        lines.clearStyleMask (n);
+    }
+}
+
+void mcl::TextDocument::applyStyleMask (juce::Range<int> rows, const juce::Array<Selection>& zones)
+{
+    for (int n = rows.getStart(); n < rows.getEnd(); ++n)
+    {
+        for (const auto& zone : zones)
+        {
+            if (zone.intersectsRow (n))
+            {
+                lines.applyStyleMask (n, zone);
+            }
+        }
+    }
 }
 
 
@@ -1496,10 +1574,15 @@ void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
 
 void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 {
-    document.findGlyphsIntersecting (g.getClipBounds()
-                                   .toFloat()
-                                   .transformedBy (transform.inverted())
-                                   ).draw (g, transform);
+    g.saveState();
+    g.addTransform (transform);
+    
+//    auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
+//    auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+//    auto content = document.getSelectionContent (Selection (rows.getStart(), 0, rows.getEnd(), 0));
+
+    document.findGlyphsIntersecting (g.getClipBounds().toFloat()).draw (g);
+    g.restoreState();
 }
 
 void mcl::TextEditor::resetProfilingData()
@@ -1507,3 +1590,4 @@ void mcl::TextEditor::resetProfilingData()
     accumulatedTimeInPaint = 0.f;
     numPaintCalls = 0;
 }
+
