@@ -21,8 +21,8 @@ namespace mcl {
         Factoring of responsibilities in the text editor classes:
      */
     class CaretComponent;         // draws the caret symbol(s)
-    class GlyphArrangementArray;  // analogous to StringArray, but caching GlyphArrangements
     class GutterComponent;        // draws the gutter
+    class GlyphArrangementArray;  // like StringArray but caches glyph positions
     class HighlightComponent;     // draws the highlight region(s)
     class Selection;              // stores leading and trailing edges of an editing region
     class TextDocument;           // stores text data and caret ranges, supplies metrics, accepts actions
@@ -199,8 +199,8 @@ private:
 
 //==============================================================================
 /**
-	This class wraps a StringArray and memoizes the evaluation of glyph
-	arrangements derived from the associated strings.
+   This class wraps a StringArray and memoizes the evaluation of glyph
+   arrangements derived from the associated strings.
 */
 class mcl::GlyphArrangementArray
 {
@@ -266,23 +266,6 @@ public:
         juce::Rectangle<float> bounds;
     };
 
-    class Iterator
-    {
-    public:
-        Iterator (const TextDocument& document) noexcept : document (&document) {}
-        juce::juce_wchar nextChar() noexcept      { if (isEOF()) return 0; document->next (index); return get(); }
-        juce::juce_wchar peekNextChar() noexcept  { return get(); }
-        void skip() noexcept                      { if (! isEOF()) { document->next (index); } }
-        void skipWhitespace() noexcept            { while (! isEOF() && juce::CharacterFunctions::isWhitespace (get())) skip(); }
-        void skipToEndOfLine() noexcept           { index.y = document->getNumColumns (index.x); }
-        bool isEOF() const noexcept               { return index == document->getEnd(); }
-        const juce::Point<int>& getIndex() const noexcept { return index; }
-    private:
-        juce::juce_wchar get() { return document->getCharacter (index); }
-        const TextDocument* document;
-        juce::Point<int> index;
-    };
-
     /** Get the current font. */
     juce::Font getFont() const { return font; }
 
@@ -300,8 +283,6 @@ public:
 
     /** Replace the selection at the given index. The index must be in range. */
     void setSelection (int index, Selection newSelection) { selections.setUnchecked (index, newSelection); }
-
-    void setStyleZones (const juce::Array<Selection>& newStyleZones) { styleZones = newStyleZones; }
 
     /** Get the number of rows in the document. */
     int getNumRows() const;
@@ -341,20 +322,13 @@ public:
     /** Return the position of the glyph at the given row and column. */
     juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
 
-    /** Return a glyph arrangement for the given row.  If style > 0, then
-        only glyphs within a style zone of that value are returned. A style value of
-        -1 means not to filter on style, and 0 means to include only glyphs that do
-        not lie in a style zone.
-     */
-    juce::GlyphArrangement getGlyphsForRow (int row, int style=-1, bool withTrailingSpace=false) const;
+    /** Return a glyph arrangement for the given row. */
+    juce::GlyphArrangement getGlyphsForRow (int row, bool withTrailingSpace=false) const;
 
     /** Return all glyphs whose bounding boxes intersect the given area. This method
-        may be generous (including glyphs that don't intersect). If style > 0, then
-        only glyphs within a style zone of that value are returned. A style value of
-        -1 means not to filter on style, and 0 means to include only glyphs that do
-        not lie in a style zone.
+        may be generous (including glyphs that don't intersect).
      */
-    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, int style=-1) const;
+    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area) const;
 
     /** Return data on the rows intersecting the given area. This is sort
         of a convenience method for calling getBoundsOnRow() over a range,
@@ -362,12 +336,6 @@ public:
      */
     juce::Array<RowData> findRowsIntersecting (juce::Rectangle<float> area,
                                                bool computeHorizontalExtent=false) const;
-
-    /** Return an array of stlye zones intersecting the given row. If style > 0,
-        then only glyphs within a style zone of that value are returned. A style
-        value of -1 means not to filter on style.
-     */
-     juce::Array<Selection> findStyleZonesIntersecting (int row, int style) const;
 
     /** Find the row and column index nearest to the given position. */
     juce::Point<int> findIndexNearestPosition (juce::Point<float> position) const;
@@ -430,14 +398,15 @@ public:
      */
     Transaction fulfill (const Transaction& transaction);
 
+    bool cacheGlyphArrangement = true;
+
 private:
     float lineSpacing = 1.33f;
     mutable juce::Rectangle<float> cachedBounds;
     GlyphArrangementArray lines;
-    //    juce::StringArray lines;
+    // juce::StringArray lines;
     juce::Font font;
     juce::Array<Selection> selections;
-    juce::Array<Selection> styleZones;
 };
 
 
@@ -557,6 +526,8 @@ private:
     void renderTextUsingGlyphArrangement (juce::Graphics& g);
     void resetProfilingData();
     bool enableSyntaxHighlighting = true;
+    bool allowCoreGraphics = true;
+    bool useOpenGLRendering = false;
     bool drawProfilingInfo = true;
     float accumulatedTimeInPaint = 0.f;
     float lastTimeInPaint = 0.f;
@@ -576,5 +547,6 @@ private:
     juce::Point<float> translation;
     juce::AffineTransform transform;
     juce::UndoManager undo;
+    juce::OpenGLContext context;
 };
 

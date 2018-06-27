@@ -613,7 +613,7 @@ Rectangle<float> mcl::TextDocument::getBounds() const
 
 Rectangle<float> mcl::TextDocument::getBoundsOnRow (int row, Range<int> columns) const
 {
-    return getGlyphsForRow (row, -1, true)
+    return getGlyphsForRow (row, true)
         .getBoundingBox    (columns.getStart(), columns.getLength(), true)
         .withTop           (getVerticalPosition (row, Metric::top))
         .withBottom        (getVerticalPosition (row, Metric::bottom));
@@ -625,32 +625,32 @@ Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
+GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, bool withTrailingSpace) const
 {
-    auto columns = SparseSet<int>();
-    auto ncol = getNumColumns (row) + withTrailingSpace;
+    if (cacheGlyphArrangement)
+    {
+        SparseSet<int> columns;
+        columns.addRange ({0, getNumColumns (row) + withTrailingSpace});
 
-    if (style == -1) // don't filter on style
-    {
-        columns.addRange ({ 0, ncol });
+        return lines.getGlyphs (row,
+                                font,
+                                getVerticalPosition (row, Metric::baseline),
+                                columns, withTrailingSpace);
     }
-    else if (style == 0) // get glyphs not in a style zone
+    GlyphArrangement glyphs;
+    
+    if (withTrailingSpace)
     {
-        columns = Selection::createSparseSetOnRow (row, ncol, findStyleZonesIntersecting (row, -1));
-        columns.invertRange ({0, ncol});
+        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
     }
-    else // get glyphs in the given style zone
+    else
     {
-        columns = Selection::createSparseSetOnRow (row, ncol, findStyleZonesIntersecting (row, style));
+        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
     }
-
-    return lines.getGlyphs (row,
-                            font,
-                            getVerticalPosition (row, Metric::baseline),
-                            columns, withTrailingSpace);
+    return glyphs;
 }
 
-GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int style) const
+GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area) const
 {
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
@@ -659,7 +659,7 @@ GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> are
 
     for (int n = row0; n <= row1; ++n)
     {
-        glyphs.addGlyphArrangement (getGlyphsForRow (n, style));
+        glyphs.addGlyphArrangement (getGlyphsForRow (n));
     }
     return glyphs;
 }
@@ -698,20 +698,6 @@ Array<mcl::TextDocument::RowData> mcl::TextDocument::findRowsIntersecting (Recta
         rows.add (data);
     }
     return rows;
-}
-
-juce::Array<mcl::Selection> mcl::TextDocument::findStyleZonesIntersecting (int row, int style) const
-{
-    juce::Array<mcl::Selection> zones;
-
-    for (const auto& s : styleZones)
-    {
-        if ((style == -1 || s.style == style) && s.intersectsRow (row))
-        {
-            zones.add (s);
-        }
-    }
-    return zones;
 }
 
 Point<int> mcl::TextDocument::findIndexNearestPosition (Point<float> position) const
@@ -1043,6 +1029,7 @@ mcl::TextEditor::TextEditor()
 
 mcl::TextEditor::~TextEditor()
 {
+    context.detach();
 }
 
 void mcl::TextEditor::setFont (Font font)
@@ -1146,14 +1133,17 @@ void mcl::TextEditor::paint (Graphics& g)
     {
         String info;
         info += "paint mode         : " + renderSchemeString + "\n";
+        info += "cache glyph bounds : " + String (document.cacheGlyphArrangement ? "yes" : "no") + "\n";
+        info += "core graphics      : " + String (allowCoreGraphics ? "yes" : "no") + "\n";
+        info += "opengl             : " + String (useOpenGLRendering ? "yes" : "no") + "\n";
         info += "syntax highlight   : " + String (enableSyntaxHighlighting ? "yes" : "no") + "\n";
         info += "mean render time   : " + String (accumulatedTimeInPaint / numPaintCalls) + " ms\n";
         info += "last render time   : " + String (lastTimeInPaint) + " ms\n";
         info += "tokeniser time     : " + String (lastTokeniserTime) + " ms\n";
 
         g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
-        g.setFont (Font ("Courier New", 10, 0));
-        g.drawMultiLineText (info, getWidth() - 200, 10, 200);
+        g.setFont (Font ("Courier New", 12, 0));
+        g.drawMultiLineText (info, getWidth() - 280, 10, 280);
     }
 
 #if PROFILE_PAINTS
@@ -1178,17 +1168,24 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
         menu.addItem (1, "Render scheme: AttributedStringSingle", true, renderScheme == RenderScheme::usingAttributedStringSingle, nullptr);
         menu.addItem (2, "Render scheme: AttributedString", true, renderScheme == RenderScheme::usingAttributedString, nullptr);
         menu.addItem (3, "Render scheme: GlyphArrangement", true, renderScheme == RenderScheme::usingGlyphArrangement, nullptr);
-        menu.addItem (4, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
-        menu.addItem (5, "Draw profiling info", true, drawProfilingInfo, nullptr);
+        menu.addItem (4, "Cache glyph positions", true, document.cacheGlyphArrangement, nullptr);
+        menu.addItem (5, "Allow Core Graphics", true, allowCoreGraphics, nullptr);
+        menu.addItem (6, "Use OpenGL rendering", true, useOpenGLRendering, nullptr);
+        menu.addItem (7, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
+        menu.addItem (8, "Draw profiling info", true, drawProfilingInfo, nullptr);
 
         switch (menu.show())
         {
             case 1: renderScheme = RenderScheme::usingAttributedStringSingle; break;
             case 2: renderScheme = RenderScheme::usingAttributedString; break;
             case 3: renderScheme = RenderScheme::usingGlyphArrangement; break;
-            case 4: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
-            case 5: drawProfilingInfo = ! drawProfilingInfo; break;
+            case 4: document.cacheGlyphArrangement = ! document.cacheGlyphArrangement; break;
+            case 5: allowCoreGraphics = ! allowCoreGraphics; break;
+            case 6: useOpenGLRendering = ! useOpenGLRendering; if (useOpenGLRendering) context.attachTo (*this); else context.detach(); break;
+            case 7: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
+            case 8: drawProfilingInfo = ! drawProfilingInfo; break;
         }
+
         resetProfilingData();
         repaint();
         return;
@@ -1389,20 +1386,54 @@ void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
     g.saveState();
     g.addTransform (transform);
 
+    auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
+    auto font = document.getFont();
     auto rows = document.findRowsIntersecting (g.getClipBounds().toFloat());
     auto r0 = rows.getFirst().rowNumber;
     auto r1 = rows.getLast().rowNumber;
     auto T = document.getVerticalPosition (r0, TextDocument::Metric::ascent);
     auto B = document.getVerticalPosition (r1, TextDocument::Metric::bottom);
-    auto W = 1000;
+    auto W = 10000;
     auto bounds = Rectangle<float>::leftTopRightBottom (0, T, W, B);
     auto content = document.getSelectionContent (Selection (r0, 0, r1 + 1, 0));
 
     AttributedString s;
+    s.setLineSpacing ((document.getLineSpacing() - 1.f) * font.getHeight());
 
-    s.setLineSpacing ((document.getLineSpacing() - 1.f) * document.getFont().getHeight());
-    s.append (content, document.getFont());
-    s.draw (g, bounds);
+    CppTokeniserFunctions::StringIterator si (content);
+    auto previous = si.t;
+    auto start = Time::getMillisecondCounterHiRes();
+
+    while (! si.isEOF())
+    {
+        auto tokenType = CppTokeniserFunctions::readNextToken (si);
+        auto colour = colourScheme.types[tokenType].colour;
+        auto token = String (previous, si.t);
+
+        previous = si.t;
+
+        if (enableSyntaxHighlighting)
+        {
+            s.append (token, font, colour);
+        }
+        else
+        {
+            s.append (token, font);
+        }
+    }
+
+    lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
+
+    if (allowCoreGraphics)
+    {
+        s.draw (g, bounds);
+    }
+    else
+    {
+        TextLayout layout;
+        layout.createLayout (s, bounds.getWidth());
+        layout.draw (g, bounds);
+    }
     g.restoreState();
 }
 
@@ -1415,6 +1446,8 @@ void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
     auto originalHeight = document.getFont().getHeight();
     auto font = document.getFont().withHeight (originalHeight * transform.getScaleFactor());
     auto rows = document.findRowsIntersecting (g.getClipBounds().toFloat().transformedBy (transform.inverted()));
+
+    lastTokeniserTime = 0.f;
 
     for (const auto& r: rows)
     {
@@ -1445,9 +1478,19 @@ void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
                 previous = si.t;
                 s.append (token, font, colour);
             }
-            lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
+
+            lastTokeniserTime += Time::getMillisecondCounterHiRes() - start;
         }
-        s.draw (g, bounds);
+        if (allowCoreGraphics)
+        {
+            s.draw (g, bounds);
+        }
+        else
+        {
+            TextLayout layout;
+            layout.createLayout (s, bounds.getWidth());
+            layout.draw (g, bounds);
+        }
     }
 }
 
