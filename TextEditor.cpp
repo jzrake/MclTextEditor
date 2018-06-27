@@ -1023,8 +1023,6 @@ UndoableAction* mcl::Transaction::on (TextLayout& layout, Callback callback)
 
 
 //==============================================================================
-#include "Syntax.hpp"
-
 mcl::TextEditor::TextEditor()
 : caret (layout)
 , gutter (layout)
@@ -1033,7 +1031,6 @@ mcl::TextEditor::TextEditor()
     lastTransactionTime = Time::getApproximateMillisecondCounter();
     layout.setSelections ({ Selection() });
 
-    scanner = std::make_shared<Scanner> (layout);
     setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
 
     translateView (GUTTER_WIDTH, 0);
@@ -1115,78 +1112,48 @@ void mcl::TextEditor::resized()
     highlight.setBounds (getLocalBounds());
     caret.setBounds (getLocalBounds());
     gutter.setBounds (getLocalBounds());
+    resetProfilingData();
 }
 
 void mcl::TextEditor::paint (Graphics& g)
 {
-#if PROFILE_PAINTS
     auto start = Time::getMillisecondCounterHiRes();
-#endif
-
     g.fillAll (findColour (CodeEditorComponent::backgroundColourId));
 
-    auto rows = layout.findRowsIntersecting(g.getClipBounds()
-                                            .toFloat()
-                                            .transformedBy (transform.inverted()));
+    String renderSchemeString;
 
-    for (const auto& r: rows)
+    switch (renderScheme)
     {
-        auto line = layout.getLine (r.rowNumber);
-
-        // Everybody knows the 9000 characters per line limit :)
-        auto bounds = layout.getBoundsOnRow (r.rowNumber, {0, getLocalBounds().getWidth()}).transformedBy (transform);
-
-        AttributedString s;
-
-        float originalHeight = layout.getFont().getHeight();
-        auto font = layout.getFont().withHeight (originalHeight * transform.getScaleFactor());
-
-        // Just create this to get the colour scheme...
-        CPlusPlusCodeTokeniser tokeniser;
-        auto colourScheme = tokeniser.getDefaultColourScheme();
-
-        CppTokeniserFunctions::StringIterator si (line);
-        auto previous = si.t;
-
-        while (!si.isEOF())
-        {
-            auto tokenType = CppTokeniserFunctions::readNextToken (si);
-            auto colour = colourScheme.types[tokenType].colour;
-            auto token = String (previous, si.t);
-
-            previous = si.t;
-            s.append (token, font, colour);
-        }
-        s.draw (g, bounds);
+        case RenderScheme::usingAttributedString:
+            renderTextUsingAttributedString (g);
+            renderSchemeString = "attr. str";
+            break;
+        case RenderScheme::usingGlyphArrangement:
+            renderTextUsingGlyphArrangement (g);
+            renderSchemeString = "glyph arr.";
+            break;
     }
 
-//    CPlusPlusCodeTokeniser tokeniser;
-//    auto scheme = tokeniser.getDefaultColourScheme();
-//
-//
-//    for (int style = 0; style <= scheme.types.size(); ++style)
-//    {
-//        auto colour = isPositiveAndBelow (style, scheme.types.size())
-//            ? scheme.types.getReference (style).colour
-//            : findColour (CodeEditorComponent::defaultTextColourId);
-//
-//        g.setColour (colour);
-//
-//        auto glyphs = layout.findGlyphsIntersecting (g.getClipBounds()
-//                                                     .toFloat()
-//                                                     .transformedBy (transform.inverted()), style);
-//
-//        glyphs.draw (g, transform);
-//    }
-//
+    lastTimeInPaint = Time::getMillisecondCounterHiRes() - start;
+    accumulatedTimeInPaint += lastTimeInPaint;
+    numPaintCalls += 1;
+
+    if (drawProfilingInfo)
+    {
+        String info;
+        info += "paint mode         : " + renderSchemeString + "\n";
+        info += "syntax highlight   : " + String (enableSyntaxHighlighting ? "yes" : "no") + "\n";
+        info += "mean render time   : " + String (accumulatedTimeInPaint / numPaintCalls) + " ms\n";
+        info += "last render time   : " + String (lastTimeInPaint) + " ms\n";
+        info += "tokeniser time     : " + String (lastTokeniserTime) + " ms\n";
+
+        g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
+        g.setFont (Font ("Courier New", 10, 0));
+        g.drawMultiLineText (info, getWidth() - 200, 10, 200);
+    }
 
 #if PROFILE_PAINTS
-    std::cout << "[TextLayout::findGlyphsIntersecting] " << Time::getMillisecondCounterHiRes() - start << std::endl;
-    start = Time::getMillisecondCounterHiRes();
-#endif
-
-#if PROFILE_PAINTS
-    std::cout << "[TextEditor::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
+    std::cout << "[TextEditor::paint] " << lastTimeInPaint << std::endl;
 #endif
 }
 
@@ -1197,7 +1164,29 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
     if (e.getNumberOfClicks() > 1)
+    {
         return;
+    }
+    else if (e.mods.isRightButtonDown())
+    {
+        PopupMenu menu;
+
+        menu.addItem (1, "Render scheme: attr. str", true, renderScheme == RenderScheme::usingAttributedString, nullptr);
+        menu.addItem (2, "Render scheme: glyph arr.", true, renderScheme == RenderScheme::usingGlyphArrangement, nullptr);
+        menu.addItem (3, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
+        menu.addItem (4, "Draw profiling info", true, drawProfilingInfo, nullptr);
+
+        switch (menu.show())
+        {
+            case 1: renderScheme = RenderScheme::usingAttributedString; break;
+            case 2: renderScheme = RenderScheme::usingGlyphArrangement; break;
+            case 3: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
+            case 4: drawProfilingInfo = ! drawProfilingInfo; break;
+        }
+        resetProfilingData();
+        repaint();
+        return;
+    }
 
     auto selections = layout.getSelections();
     auto index = layout.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
@@ -1342,9 +1331,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
             auto callback = [this, n] (const Transaction& r)
             {
-                /* -------------------- experimental */
-                scanAndSetStyleZones();
-
                 switch (r.direction) // NB: switching on the direction of the reciprocal here
                 {
                     case Transaction::Direction::forward: layout.setSelection (n, r.selection); break;
@@ -1388,27 +1374,60 @@ MouseCursor mcl::TextEditor::getMouseCursor()
     return getMouseXYRelative().x < GUTTER_WIDTH ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
 }
 
-void mcl::TextEditor::scanAndSetStyleZones()
+
+
+
+//==============================================================================
+void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
 {
-#if TEST_SYNTAX_SUPPORT
-//    TextLayout::Iterator source (layout);
-//
-//    Point<int> lastIndex;
-//    Array<Selection> zones;
-//
-//    while (true)
-//    {
-//        auto token = CppTokeniserFunctions::readNextToken (source);
-//
-//        if (token == CPlusPlusCodeTokeniser::tokenType_error)
-//            break;
-//
-//        DBG("adding zone: " << Selection (lastIndex, source.getIndex()).toString() << " :: " << token);
-//        zones.add (Selection (lastIndex, source.getIndex()).withStyle (token));
-//
-//        lastIndex = source.getIndex();
-//    }
-//    layout.setStyleZones (zones);
-//    repaint();
-#endif
+    auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
+    auto originalHeight = layout.getFont().getHeight();
+    auto font = layout.getFont().withHeight (originalHeight * transform.getScaleFactor());
+    auto rows = layout.findRowsIntersecting (g.getClipBounds().toFloat().transformedBy (transform.inverted()));
+
+    for (const auto& r: rows)
+    {
+        auto line = layout.getLine (r.rowNumber);
+        auto bounds = layout.getBoundsOnRow (r.rowNumber, {0, 1000}).transformedBy (transform);
+
+        AttributedString s;
+
+        if (! enableSyntaxHighlighting)
+        {
+            s.append (line, font);
+        }
+        else
+        {
+            auto start = Time::getMillisecondCounterHiRes();
+
+            CppTokeniserFunctions::StringIterator si (line);
+            auto previous = si.t;
+
+            while (! si.isEOF())
+            {
+                auto tokenType = CppTokeniserFunctions::readNextToken (si);
+                auto colour = colourScheme.types[tokenType].colour;
+                auto token = String (previous, si.t);
+
+                previous = si.t;
+                s.append (token, font, colour);
+            }
+            lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
+        }
+        s.draw (g, bounds);
+    }
+}
+
+void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
+{
+    layout.findGlyphsIntersecting (g.getClipBounds()
+                                   .toFloat()
+                                   .transformedBy (transform.inverted())
+                                   ).draw (g, transform);
+}
+
+void mcl::TextEditor::resetProfilingData()
+{
+    accumulatedTimeInPaint = 0.f;
+    numPaintCalls = 0;
 }

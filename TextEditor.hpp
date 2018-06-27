@@ -522,6 +522,11 @@ private:
 class mcl::TextEditor : public juce::Component
 {
 public:
+    enum class RenderScheme {
+        usingAttributedString,
+        usingGlyphArrangement,
+    };
+
     TextEditor();
     ~TextEditor();
     void setFont (juce::Font font);
@@ -548,10 +553,22 @@ private:
     void translateToEnsureCaretIsVisible();
     void scanAndSetStyleZones();
 
+    //==========================================================================
+    void renderTextUsingAttributedString (juce::Graphics& g);
+    void renderTextUsingGlyphArrangement (juce::Graphics& g);
+    void resetProfilingData();
+    bool enableSyntaxHighlighting = true;
+    bool drawProfilingInfo = true;
+    float accumulatedTimeInPaint = 0.f;
+    float lastTimeInPaint = 0.f;
+    float lastTokeniserTime = 0.f;
+    int numPaintCalls = 0;
+    RenderScheme renderScheme = RenderScheme::usingAttributedString;
+
+    //==========================================================================
     double lastTransactionTime;
     bool tabKeyUsed = true;
     TextLayout layout;
-    std::shared_ptr<Scanner> scanner; // Experimental
     CaretComponent caret;
     GutterComponent gutter;
     HighlightComponent highlight;
