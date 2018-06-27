@@ -1392,17 +1392,15 @@ void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
     auto rows = document.findRowsIntersecting (g.getClipBounds().toFloat());
     auto r0 = rows.getFirst().rowNumber;
     auto r1 = rows.getLast().rowNumber;
-    auto T = document.getVerticalPosition (r0, TextDocument::Metric::top);
+    auto T = document.getVerticalPosition (r0, TextDocument::Metric::ascent);
     auto B = document.getVerticalPosition (r1, TextDocument::Metric::bottom);
     auto W = 1000;
     auto bounds = Rectangle<float>::leftTopRightBottom (0, T, W, B);
-    auto content = document.getSelectionContent (Selection (r0, 0, r1, 0));
+    auto content = document.getSelectionContent (Selection (r0, 0, r1 + 1, 0));
 
     AttributedString s;
 
-    // PROBLEM: how is line spacing defined in AttributedString?
-    s.setLineSpacing ((document.getLineSpacing() - 1.08f) * document.getFont().getHeight());
-
+    s.setLineSpacing ((document.getLineSpacing() - 1.f) * document.getFont().getHeight());
     s.append (content, document.getFont());
     s.draw (g, bounds);
     g.restoreState();
