@@ -217,8 +217,13 @@ public:
                                       float baseline,
                                       int style,
                                       bool withTrailingSpace=false) const;
-    juce::Font font;
+
 private:
+    friend class TextDocument;
+    friend class TextEditor;
+    juce::Font font;
+    bool cacheGlyphArrangement = true;
+
     void ensureValid (int index) const;
     void invalidateAll();
 
@@ -430,13 +435,12 @@ public:
     /** Apply the given zones to the style mask of glyphs in the document. */
     void applyStyleMask (juce::Range<int> rows, const juce::Array<Selection>& zones);
 
-    bool cacheGlyphArrangement = true;
-
 private:
-    float lineSpacing = 1.33f;
+    friend class TextEditor;
+
+    float lineSpacing = 1.25f;
     mutable juce::Rectangle<float> cachedBounds;
     GlyphArrangementArray lines;
-    // juce::StringArray lines;
     juce::Font font;
     juce::Array<Selection> selections;
 };

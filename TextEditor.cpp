@@ -543,7 +543,11 @@ void mcl::GlyphArrangementArray::ensureValid (int index) const
         entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
         entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
         entry.styleMask.resize (entry.string.length());
-        entry.dirty = false;
+
+        if (cacheGlyphArrangement)
+        {
+            entry.dirty = false;
+        }
     }
     jassert (entry.string.length() == entry.styleMask.size());
 }
@@ -666,24 +670,24 @@ Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
 
 GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
 {
-    if (cacheGlyphArrangement)
-    {
-        return lines.getGlyphs (row,
-                                getVerticalPosition (row, Metric::baseline),
-                                style,
-                                withTrailingSpace);
-    }
-    GlyphArrangement glyphs;
-
-    if (withTrailingSpace)
-    {
-        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
-    }
-    else
-    {
-        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
-    }
-    return glyphs;
+//    if (cacheGlyphArrangement)
+//    {
+    return lines.getGlyphs (row,
+                            getVerticalPosition (row, Metric::baseline),
+                            style,
+                            withTrailingSpace);
+//    }
+//    GlyphArrangement glyphs;
+//
+//    if (withTrailingSpace)
+//    {
+//        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
+//    }
+//    else
+//    {
+//        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
+//    }
+//    return glyphs;
 }
 
 GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int style) const
@@ -1205,7 +1209,7 @@ void mcl::TextEditor::paint (Graphics& g)
     {
         String info;
         info += "paint mode         : " + renderSchemeString + "\n";
-        info += "cache glyph bounds : " + String (document.cacheGlyphArrangement ? "yes" : "no") + "\n";
+        info += "cache glyph bounds : " + String (document.lines.cacheGlyphArrangement ? "yes" : "no") + "\n";
         info += "core graphics      : " + String (allowCoreGraphics ? "yes" : "no") + "\n";
         info += "opengl             : " + String (useOpenGLRendering ? "yes" : "no") + "\n";
         info += "syntax highlight   : " + String (enableSyntaxHighlighting ? "yes" : "no") + "\n";
@@ -1240,7 +1244,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
         menu.addItem (1, "Render scheme: AttributedStringSingle", true, renderScheme == RenderScheme::usingAttributedStringSingle, nullptr);
         menu.addItem (2, "Render scheme: AttributedString", true, renderScheme == RenderScheme::usingAttributedString, nullptr);
         menu.addItem (3, "Render scheme: GlyphArrangement", true, renderScheme == RenderScheme::usingGlyphArrangement, nullptr);
-        menu.addItem (4, "Cache glyph positions", true, document.cacheGlyphArrangement, nullptr);
+        menu.addItem (4, "Cache glyph positions", true, document.lines.cacheGlyphArrangement, nullptr);
         menu.addItem (5, "Allow Core Graphics", true, allowCoreGraphics, nullptr);
         menu.addItem (6, "Use OpenGL rendering", true, useOpenGLRendering, nullptr);
         menu.addItem (7, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
@@ -1251,7 +1255,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
             case 1: renderScheme = RenderScheme::usingAttributedStringSingle; break;
             case 2: renderScheme = RenderScheme::usingAttributedString; break;
             case 3: renderScheme = RenderScheme::usingGlyphArrangement; break;
-            case 4: document.cacheGlyphArrangement = ! document.cacheGlyphArrangement; break;
+            case 4: document.lines.cacheGlyphArrangement = ! document.lines.cacheGlyphArrangement; break;
             case 5: allowCoreGraphics = ! allowCoreGraphics; break;
             case 6: useOpenGLRendering = ! useOpenGLRendering; if (useOpenGLRendering) context.attachTo (*this); else context.detach(); break;
             case 7: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
