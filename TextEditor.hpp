@@ -556,7 +556,7 @@ public:
     void setFont (juce::Font font);
     void setText (const juce::String& text);
     void translateView (float dx, float dy);
-    void scaleView (float scaleFactor);
+    void scaleView (float scaleFactor, float verticalCenter);
 
     //==========================================================================
     void resized() override;

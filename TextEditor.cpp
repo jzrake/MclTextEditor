@@ -21,7 +21,7 @@ using namespace juce;
 #define TEST_MULTI_CARET_EDITING true
 #define TEST_SYNTAX_SUPPORT true
 #define ENABLE_CARET_BLINK false
-#define PROFILE_PAINTS true
+#define PROFILE_PAINTS false
 
 
 
@@ -1121,9 +1121,13 @@ void mcl::TextEditor::translateView (float dx, float dy)
     updateViewTransform();
 }
 
-void mcl::TextEditor::scaleView (float scaleFactor)
+void mcl::TextEditor::scaleView (float scaleFactorMultiplier, float verticalCenter)
 {
-    viewScaleFactor *= scaleFactor;
+    auto newS = viewScaleFactor * scaleFactorMultiplier;
+    auto fixedy = Point<float> (0, verticalCenter).transformedBy (transform.inverted()).y;
+
+    translation.y = -newS * fixedy + verticalCenter;
+    viewScaleFactor = newS;
     updateViewTransform();
 }
 
@@ -1313,7 +1317,7 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
 
 void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 {
-    scaleView (scaleFactor);
+    scaleView (scaleFactor, e.position.y);
 }
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
