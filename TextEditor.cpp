@@ -17,10 +17,11 @@ using namespace juce;
 
 #define GUTTER_WIDTH 48.f
 #define CURSOR_WIDTH 3.f
+#define TEXT_INDENT 4.f
 #define TEST_MULTI_CARET_EDITING true
 #define TEST_SYNTAX_SUPPORT true
 #define ENABLE_CARET_BLINK false
-#define PROFILE_PAINTS false
+#define PROFILE_PAINTS true
 
 
 
@@ -97,7 +98,9 @@ Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
 
 
 //==========================================================================
-mcl::GutterComponent::GutterComponent (const TextDocument& document) : document (document)
+mcl::GutterComponent::GutterComponent (const TextDocument& document)
+: document (document)
+, memoizedGlyphArrangements ([this] (int row) { return getLineNumberGlyphs (row); })
 {
     setInterceptsMouseClicks (false, false);
 }
@@ -151,21 +154,26 @@ void mcl::GutterComponent::paint (Graphics& g)
     auto rowData = document.findRowsIntersecting (area);
     auto verticalTransform = transform.withAbsoluteTranslation (0.f, transform.getTranslationY());
 
+    g.setColour (ln.contrasting (0.1f));
+
     for (const auto& r : rowData)
     {
-        auto A = r.bounds
-            .transformedBy (transform)
-            .withX (0)
-            .withWidth (GUTTER_WIDTH);
-
         if (r.isRowSelected)
         {
-            g.setColour (ln.contrasting (0.1f));
+            auto A = r.bounds
+                .transformedBy (transform)
+                .withX (0)
+                .withWidth (GUTTER_WIDTH);
+
             g.fillRect (A);
         }
+    }
 
-        g.setColour (getParentComponent()->findColour (CodeEditorComponent::lineNumberTextId));
-        getLineNumberGlyphs (r.rowNumber, true).draw (g, verticalTransform);
+    g.setColour (getParentComponent()->findColour (CodeEditorComponent::lineNumberTextId));
+
+    for (const auto& r : rowData)
+    {
+        memoizedGlyphArrangements (r.rowNumber).draw(g, verticalTransform);
     }
 
 #if PROFILE_PAINTS
@@ -173,27 +181,8 @@ void mcl::GutterComponent::paint (Graphics& g)
 #endif
 }
 
-void mcl::GutterComponent::cacheLineNumberGlyphs (int cacheSize)
+GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row) const
 {
-    /*
-     Larger cache sizes than ~1000 slows component loading. The proper way to
-     do this is to write a GlyphArrangementMemoizer class. Soon enough.
-     */
-    lineNumberGlyphsCache.clear();
-
-    for (int n = 0; n < cacheSize; ++n)
-    {
-        lineNumberGlyphsCache.add (getLineNumberGlyphs (n, false));
-    }
-}
-
-GlyphArrangement mcl::GutterComponent::getLineNumberGlyphs (int row, bool useCached) const
-{
-    if (useCached && row < lineNumberGlyphsCache.size())
-    {
-        return lineNumberGlyphsCache.getReference (row);
-    }
-
     GlyphArrangement glyphs;
     glyphs.addLineOfText (document.getFont().withHeight (12.f),
                           String (row + 1),
@@ -507,7 +496,7 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
 
         if (withTrailingSpace)
         {
-            glyphs.addLineOfText (font, " ", 0.f, baseline);
+            glyphs.addLineOfText (font, " ", TEXT_INDENT, baseline);
         }
         return glyphs;
     }
@@ -540,8 +529,8 @@ void mcl::GlyphArrangementArray::ensureValid (int index) const
     {
         entry.glyphs.clear();
         entry.glyphsWithTrailingSpace.clear();
-        entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
-        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
+        entry.glyphs.addLineOfText (font, entry.string, TEXT_INDENT, 0.f);
+        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", TEXT_INDENT, 0.f);
         entry.styleMask.resize (entry.string.length());
 
         if (cacheGlyphArrangement)
@@ -631,7 +620,8 @@ Array<Rectangle<float>> mcl::TextDocument::getSelectionRegion (Selection selecti
                 getVerticalPosition (n, Metric::bottom)
             })) continue;
 
-            if      (n == r0) patches.add (getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1)));
+            if      (n == r1 && c1 == 0) continue;
+            else if (n == r0) patches.add (getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1)));
             else if (n == r1) patches.add (getBoundsOnRow (r1, Range<int> (0, c1)));
             else              patches.add (getBoundsOnRow (n,  Range<int> (0, getNumColumns (n) + 1)));
         }
@@ -881,7 +871,7 @@ juce_wchar mcl::TextDocument::getCharacter (Point<int> index) const
     {
         return '\n';
     }
-    return  lines[index.x].getCharPointer()[index.y];
+    return lines[index.x].getCharPointer()[index.y];
 }
 
 mcl::Selection mcl::TextDocument::getSelection (int index, Navigation navigation, bool fixingTail) const
@@ -1111,7 +1101,6 @@ mcl::TextEditor::~TextEditor()
 void mcl::TextEditor::setFont (Font font)
 {
     document.setFont (font);
-    gutter.cacheLineNumberGlyphs();
     repaint();
 }
 

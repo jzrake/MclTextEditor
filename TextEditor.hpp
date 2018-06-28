@@ -28,6 +28,28 @@ namespace mcl {
     class TextDocument;           // stores text data and caret ranges, supplies metrics, accepts actions
     class TextEditor;             // is a component, issues actions, computes view transform
     class Transaction;            // a text replacement, the document computes the inverse on fulfilling it
+
+
+    //==============================================================================
+    template <typename ArgType, typename DataType>
+    class Memoizer
+    {
+    public:
+        using FunctionType = std::function<DataType(ArgType)>;
+
+        Memoizer (FunctionType f) : f (f) {}
+        DataType operator() (ArgType argument) const
+        {
+            if (map.contains (argument))
+            {
+                return map.getReference (argument);
+            }
+            map.set (argument, f (argument));
+            return this->operator() (argument);
+        }
+        FunctionType f;
+        mutable juce::HashMap<ArgType, DataType> map;
+    };
 }
 
 
@@ -480,17 +502,16 @@ public:
     GutterComponent (const TextDocument& document);
     void setViewTransform (const juce::AffineTransform& transformToUse);
     void updateSelections();
-    void cacheLineNumberGlyphs (int cacheSize=1000);
 
     //==========================================================================
     void paint (juce::Graphics& g) override;
 
 private:
-    juce::GlyphArrangement getLineNumberGlyphs (int row, bool useCached) const;
+    juce::GlyphArrangement getLineNumberGlyphs (int row) const;
     //==========================================================================
     const TextDocument& document;
     juce::AffineTransform transform;
-    juce::Array<juce::GlyphArrangement> lineNumberGlyphsCache;
+    Memoizer<int, juce::GlyphArrangement> memoizedGlyphArrangements;
 };
 
 
