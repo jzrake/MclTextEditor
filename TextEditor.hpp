@@ -431,6 +431,8 @@ public:
     /** Navigate all selections. */
     void navigateSelections (Target target, Direction direction, Selection::Part part);
 
+    Selection search (juce::Point<int> start, const juce::String& target) const;
+
     /** Return the character at the given index. */
     juce::juce_wchar getCharacter (juce::Point<int> index) const;
 

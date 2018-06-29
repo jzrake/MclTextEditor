@@ -858,6 +858,21 @@ void mcl::TextDocument::navigateSelections (Target target, Direction direction, 
     }
 }
 
+mcl::Selection mcl::TextDocument::search (juce::Point<int> start, const juce::String& target) const
+{
+    while (start != getEnd())
+    {
+        auto y = lines[start.x].indexOf (start.y, target);
+
+        if (y != -1)
+            return Selection (start.x, y, start.x, y + target.length());
+
+        start.y = 0;
+        start.x += 1;
+    }
+    return Selection();
+}
+
 juce_wchar mcl::TextDocument::getCharacter (Point<int> index) const
 {
     jassert (0 <= index.x && index.x <= lines.size());
@@ -1109,7 +1124,7 @@ void mcl::TextEditor::updateSelections()
 
 void mcl::TextEditor::translateToEnsureCaretIsVisible()
 {
-    auto i = document.getSelections().getFirst().head;
+    auto i = document.getSelections().getLast().head;
     auto t = Point<float> (0.f, document.getVerticalPosition (i.x, TextDocument::Metric::top))   .transformedBy (transform);
     auto b = Point<float> (0.f, document.getVerticalPosition (i.x, TextDocument::Metric::bottom)).transformedBy (transform);
 
@@ -1321,6 +1336,25 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         updateSelections();
         return true;
     };
+    auto addSelectionAtNextMatch = [this] ()
+    {
+        const auto& s = document.getSelections().getLast();
+
+        if (! s.isSingleLine())
+        {
+            return false;
+        }
+        auto t = document.search (s.tail, document.getSelectionContent (s));
+
+        if (t.isSingular())
+        {
+            return false;
+        }
+        document.addSelection (t);
+        translateToEnsureCaretIsVisible();
+        updateSelections();
+        return true;
+    };
 
 
     // =======================================================================================
@@ -1365,6 +1399,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
     if (key == KeyPress ('d', ModifierKeys::commandModifier, 0)) return expand (Target::whitespace);
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
+    if (key == KeyPress ('f', ModifierKeys::commandModifier, 0)) return addSelectionAtNextMatch();
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
