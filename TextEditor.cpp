@@ -22,6 +22,7 @@ using namespace juce;
 #define TEST_SYNTAX_SUPPORT true
 #define ENABLE_CARET_BLINK false
 #define PROFILE_PAINTS false
+static bool DEBUG_TOKENS = false;
 
 
 
@@ -454,7 +455,16 @@ const String& mcl::GlyphArrangementArray::operator[] (int index) const
     return empty;
 }
 
-void mcl::GlyphArrangementArray::clearStyleMask (int index)
+int mcl::GlyphArrangementArray::getToken (int row, int col) const
+{
+    if (! isPositiveAndBelow (row, lines.size()))
+    {
+        return 0;
+    }
+    return lines.getReference (row).tokens[col];
+}
+
+void mcl::GlyphArrangementArray::clearTokens (int index)
 {
     if (! isPositiveAndBelow (index, lines.size()))
         return;
@@ -463,31 +473,31 @@ void mcl::GlyphArrangementArray::clearStyleMask (int index)
 
     ensureValid (index);
 
-    for (int col = 0; col < entry.styleMask.size(); ++col)
+    for (int col = 0; col < entry.tokens.size(); ++col)
     {
-        entry.styleMask.setUnchecked (col, 0);
+        entry.tokens.setUnchecked (col, 0);
     }
 }
 
-void mcl::GlyphArrangementArray::applyStyleMask (int index, Selection zone)
+void mcl::GlyphArrangementArray::applyTokens (int index, Selection zone)
 {
     if (! isPositiveAndBelow (index, lines.size()))
         return;
 
     auto& entry = lines.getReference (index);
-    auto range = zone.getColumnRangeOnRow (index, entry.styleMask.size());
+    auto range = zone.getColumnRangeOnRow (index, entry.tokens.size());
 
     ensureValid (index);
 
     for (int col = range.getStart(); col < range.getEnd(); ++col)
     {
-        entry.styleMask.setUnchecked (col, zone.style);
+        entry.tokens.setUnchecked (col, zone.token);
     }
 }
 
 GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
                                                         float baseline,
-                                                        int style,
+                                                        int token,
                                                         bool withTrailingSpace) const
 {
     if (! isPositiveAndBelow (index, lines.size()))
@@ -503,15 +513,28 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
     ensureValid (index);
 
     auto& entry = lines.getReference (index);
-    auto& glyphSource = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
+    auto glyphSource = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
     auto glyphs = GlyphArrangement();
+
+    if (DEBUG_TOKENS)
+    {
+        String line;
+
+        for (auto token : entry.tokens)
+        {
+            line << String (token);
+        }
+        glyphSource.clear();
+        glyphSource.addLineOfText (font, line, 0.f, 0.f);
+    }
 
     for (int n = 0; n < glyphSource.getNumGlyphs(); ++n)
     {
-        if (style == -1 || entry.styleMask.getUnchecked (n) == style)
+        //if (token == -1 || entry.tokens.getUnchecked (n) == token)
+        if (token == -1 || entry.tokens[n] == token)
         {
             auto glyph = glyphSource.getGlyph (n);
-            glyph.moveBy (0.f, baseline);
+            glyph.moveBy (TEXT_INDENT, baseline);
             glyphs.addGlyph (glyph);
         }
     }
@@ -525,27 +548,21 @@ void mcl::GlyphArrangementArray::ensureValid (int index) const
 
     auto& entry = lines.getReference (index);
 
-    if (entry.dirty)
+    if (entry.glyphsAreDirty)
     {
-        entry.glyphs.clear();
-        entry.glyphsWithTrailingSpace.clear();
-        entry.glyphs.addLineOfText (font, entry.string, TEXT_INDENT, 0.f);
-        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", TEXT_INDENT, 0.f);
-        entry.styleMask.resize (entry.string.length());
-
-        if (cacheGlyphArrangement)
-        {
-            entry.dirty = false;
-        }
+        entry.tokens.resize (entry.string.length());
+        entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
+        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
+        entry.glyphsAreDirty = ! cacheGlyphArrangement;
     }
-    jassert (entry.string.length() == entry.styleMask.size());
 }
 
 void mcl::GlyphArrangementArray::invalidateAll()
 {
     for (auto& entry : lines)
     {
-        entry.dirty = true;
+        entry.glyphsAreDirty = true;
+        entry.tokensAreDirty = true;
     }
 }
 
@@ -658,15 +675,15 @@ Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
     return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
 }
 
-GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
+GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int token, bool withTrailingSpace) const
 {
     return lines.getGlyphs (row,
                             getVerticalPosition (row, Metric::baseline),
-                            style,
+                            token,
                             withTrailingSpace);
 }
 
-GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int style) const
+GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int token) const
 {
     auto range = getRangeOfRowsIntersecting (area);
     auto rows = Array<RowData>();
@@ -674,7 +691,7 @@ GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> are
 
     for (int n = range.getStart(); n < range.getEnd(); ++n)
     {
-        glyphs.addGlyphArrangement (getGlyphsForRow (n, style));
+        glyphs.addGlyphArrangement (getGlyphsForRow (n, token));
     }
     return glyphs;
 }
@@ -838,6 +855,18 @@ void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction 
         case Target::character  : advance (i); break;
         case Target::subword    : jassertfalse; break; // IMPLEMENT ME
         case Target::word       : while (CF::isWhitespace (get (i)) && advance (i)) { } break;
+        case Target::token:
+        {
+            int s = lines.getToken (i.x, i.y);
+            int t = s;
+
+            while (s == t && advance (i))
+            {
+                s = t;
+                t = lines.getToken (i.x, i.y);
+            }
+            break;
+        }
         case Target::line       : while (get (i) != '\n' && advance (i)) { } break;
         case Target::paragraph  : while (getNumColumns (i.x) > 0 && advance (i)) {} break;
         case Target::scope      : jassertfalse; break; // IMPLEMENT ME
@@ -957,15 +986,15 @@ mcl::Transaction mcl::TextDocument::fulfill (const Transaction& transaction)
     return r;
 }
 
-void mcl::TextDocument::clearStyleMask (juce::Range<int> rows)
+void mcl::TextDocument::clearTokens (juce::Range<int> rows)
 {
     for (int n = rows.getStart(); n < rows.getEnd(); ++n)
     {
-        lines.clearStyleMask (n);
+        lines.clearTokens (n);
     }
 }
 
-void mcl::TextDocument::applyStyleMask (juce::Range<int> rows, const juce::Array<Selection>& zones)
+void mcl::TextDocument::applyTokens (juce::Range<int> rows, const juce::Array<Selection>& zones)
 {
     for (int n = rows.getStart(); n < rows.getEnd(); ++n)
     {
@@ -973,7 +1002,7 @@ void mcl::TextDocument::applyStyleMask (juce::Range<int> rows, const juce::Array
         {
             if (zone.intersectsRow (n))
             {
-                lines.applyStyleMask (n, zone);
+                lines.applyTokens (n, zone);
             }
         }
     }
@@ -1217,6 +1246,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
         menu.addItem (6, "Use OpenGL rendering", true, useOpenGLRendering, nullptr);
         menu.addItem (7, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
         menu.addItem (8, "Draw profiling info", true, drawProfilingInfo, nullptr);
+        menu.addItem (9, "Debug tokens", true, DEBUG_TOKENS, nullptr);
 
         switch (menu.show())
         {
@@ -1228,6 +1258,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
             case 6: useOpenGLRendering = ! useOpenGLRendering; if (useOpenGLRendering) context.attachTo (*this); else context.detach(); break;
             case 7: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
             case 8: drawProfilingInfo = ! drawProfilingInfo; break;
+            case 9: DEBUG_TOKENS = ! DEBUG_TOKENS; break;
         }
 
         resetProfilingData();
@@ -1364,7 +1395,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         updateSelections();
         return true;
     }
-
     if (mods.isCtrlDown() && mods.isAltDown())
     {
         if (key.isKeyCode (KeyPress::downKey)) return addCaret (Target::character, Direction::forwardRow);
@@ -1398,11 +1428,18 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
     if (key == KeyPress ('d', ModifierKeys::commandModifier, 0)) return expand (Target::whitespace);
+    if (key == KeyPress ('e', ModifierKeys::commandModifier, 0)) return expand (Target::token);
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
     if (key == KeyPress ('f', ModifierKeys::commandModifier, 0)) return addSelectionAtNextMatch();
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
+    if (key == KeyPress ('p', ModifierKeys::commandModifier, 0))
+    {
+        auto i = document.getSelections().getFirst().head;
+        DBG("token under the caret is: " << document.lines.getToken (i.x, i.y));
+        return true;
+    }
 
     if (key == KeyPress ('x', ModifierKeys::commandModifier, 0))
     {
@@ -1600,8 +1637,8 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
             zones.add (Selection (previous, it.getIndex()).withStyle (tokenType));
             previous = it.getIndex();
         }
-        document.clearStyleMask (rows);
-        document.applyStyleMask (rows, zones);
+        document.clearTokens (rows);
+        document.applyTokens (rows, zones);
 
         lastTokeniserTime = Time::getMillisecondCounterHiRes() - start;
 

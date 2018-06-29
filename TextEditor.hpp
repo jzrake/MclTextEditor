@@ -158,7 +158,7 @@ struct mcl::Selection
      */
     Selection startingFrom (juce::Point<int> index) const;
 
-    Selection withStyle (int style) const { auto s = *this; s.style = style; return s; }
+    Selection withStyle (int token) const { auto s = *this; s.token = token; return s; }
 
     /** Modify this selection (if necessary) to account for the disapearance of a
         selection someplace else.
@@ -182,7 +182,7 @@ struct mcl::Selection
 
     juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
     juce::Point<int> tail; // (row, col) of the tail
-    int style = 0;
+    int token = 0;
 };
 
 
@@ -233,11 +233,12 @@ public:
     void removeRange (int startIndex, int numberToRemove) { lines.removeRange (startIndex, numberToRemove); }
     const juce::String& operator[] (int index) const;
 
-    void clearStyleMask (int index);
-    void applyStyleMask (int index, Selection zone);
+    int getToken (int row, int col) const;
+    void clearTokens (int index);
+    void applyTokens (int index, Selection zone);
     juce::GlyphArrangement getGlyphs (int index,
                                       float baseline,
-                                      int style,
+                                      int token,
                                       bool withTrailingSpace=false) const;
 
 private:
@@ -256,8 +257,9 @@ private:
         juce::String string;
         juce::GlyphArrangement glyphsWithTrailingSpace;
         juce::GlyphArrangement glyphs;
-        juce::Array<int> styleMask;
-        bool dirty = true;
+        juce::Array<int> tokens;
+        bool glyphsAreDirty = true;
+        bool tokensAreDirty = true;
     };
     mutable juce::Array<Entry> lines;
 };
@@ -291,6 +293,7 @@ public:
         character,
         subword,
         word,
+        token,
         line,
         paragraph,
         scope,
@@ -379,16 +382,16 @@ public:
     /** Return the position of the glyph at the given row and column. */
     juce::Rectangle<float> getGlyphBounds (juce::Point<int> index) const;
 
-    /** Return a glyph arrangement for the given row. If style != -1, then
-     only glyphs with that style mask are returned.
+    /** Return a glyph arrangement for the given row. If token != -1, then
+     only glyphs with that token are returned.
      */
-    juce::GlyphArrangement getGlyphsForRow (int row, int style=-1, bool withTrailingSpace=false) const;
+    juce::GlyphArrangement getGlyphsForRow (int row, int token=-1, bool withTrailingSpace=false) const;
 
     /** Return all glyphs whose bounding boxes intersect the given area. This method
-        may be generous (including glyphs that don't intersect). If style != -1, then
-        only glyphs with that style mask are returned.
+        may be generous (including glyphs that don't intersect). If token != -1, then
+        only glyphs with that token mask are returned.
      */
-    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, int style=-1) const;
+    juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, int token=-1) const;
 
     /** Return the range of rows intersecting the given rectangle. */
     juce::Range<int> getRangeOfRowsIntersecting (juce::Rectangle<float> area) const;
@@ -461,10 +464,11 @@ public:
      */
     Transaction fulfill (const Transaction& transaction);
 
-    void clearStyleMask (juce::Range<int> rows);
+    /* Reset glyph token values on the given range of rows. */
+    void clearTokens (juce::Range<int> rows);
 
-    /** Apply the given zones to the style mask of glyphs in the document. */
-    void applyStyleMask (juce::Range<int> rows, const juce::Array<Selection>& zones);
+    /** Apply tokens from a set of zones to a range of rows. */
+    void applyTokens (juce::Range<int> rows, const juce::Array<Selection>& zones);
 
 private:
     friend class TextEditor;
