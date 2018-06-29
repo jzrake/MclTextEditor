@@ -290,6 +290,27 @@ public:
         toLineStart, toLineEnd,
     };
 
+    /**
+     Text categories the caret may be targeted to. For forward jumps,
+     the caret is moved to be immediately in front of the first character
+     in the given catagory. For backward jumps, it goes just after the
+     first character of that category.
+     */
+    enum class Target
+    {
+        whitespace,
+        punctuation,
+        character,
+        subword,
+        word,
+        sentence,
+        endline,
+        paragraph,
+        scope,
+        document,
+    };
+    enum class Direction { forward, backward };
+
     struct RowData
     {
         int rowNumber = 0;
@@ -382,6 +403,7 @@ public:
      */
     juce::GlyphArrangement findGlyphsIntersecting (juce::Rectangle<float> area, int style=-1) const;
 
+    /** Return the range of rows intersecting the given rectangle. */
     juce::Range<int> getRangeOfRowsIntersecting (juce::Rectangle<float> area) const;
 
     /** Return data on the rows intersecting the given area. This is sort
@@ -420,6 +442,16 @@ public:
 
     /** Move the given index to the previous word if possible. */
     bool prevWord (juce::Point<int>& index) const;
+
+    /** Navigate an index to the first character of the given categaory.
+     */
+    void navigate (juce::Point<int>& index, Target target, Direction direction) const;
+
+    /** Navigate all selection heads. The selections tails are moved to the
+        head location unless fixingTail is true, in which case the selection
+        is expanded or contracted.
+     */
+    void navigateSelections (Target target, Direction direction, bool fixingTail=false);
 
     /** Return the character at the given index. */
     juce::juce_wchar getCharacter (juce::Point<int> index) const;

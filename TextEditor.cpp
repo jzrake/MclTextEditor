@@ -660,24 +660,10 @@ Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
 
 GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int style, bool withTrailingSpace) const
 {
-//    if (cacheGlyphArrangement)
-//    {
     return lines.getGlyphs (row,
                             getVerticalPosition (row, Metric::baseline),
                             style,
                             withTrailingSpace);
-//    }
-//    GlyphArrangement glyphs;
-//
-//    if (withTrailingSpace)
-//    {
-//        glyphs.addLineOfText (font, lines[row] + " ", 0.f, getVerticalPosition (row, Metric::baseline));
-//    }
-//    else
-//    {
-//        glyphs.addLineOfText (font, lines[row], 0.f, getVerticalPosition (row, Metric::baseline));
-//    }
-//    return glyphs;
 }
 
 GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> area, int style) const
@@ -860,6 +846,52 @@ bool mcl::TextDocument::prevWord (Point<int>& index) const
         }
     }
     return false;
+}
+
+void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction direction) const
+{
+    std::function<bool(Point<int>&)> advance;
+    std::function<juce_wchar(Point<int>&)> get;
+
+    using CF = CharacterFunctions;
+    static String punctuation = "{}<>()[],.;:";
+
+    switch (direction)
+    {
+        case Direction::forward :
+            advance = [this] (Point<int>& i) { return next (i); };
+            get     = [this] (Point<int> i) { return getCharacter (i); };
+            break;
+        case Direction::backward:
+            advance = [this] (Point<int>& i) { return prev (i); };
+            get     = [this] (Point<int> i) { prev (i); return getCharacter (i); };
+            break;
+    }
+
+    switch (target)
+    {
+        case Target::whitespace : while (! CF::isWhitespace (get (i)) && advance (i)) { } break;
+        case Target::punctuation: while (! punctuation.containsChar (get (i)) && advance (i)) { } break;
+        case Target::character  : advance (i); break;
+        case Target::subword    : break;
+        case Target::word       : while (CF::isWhitespace (get (i)) && advance (i)) { } break;
+        case Target::sentence   : break;
+        case Target::endline    : while (get (i) != '\n' && advance (i)) { } break;
+        case Target::paragraph  : break;
+        case Target::scope      : break;
+        case Target::document   : while (advance (i)) { } break;
+    }
+}
+
+void mcl::TextDocument::navigateSelections (Target target, Direction direction, bool fixingTail)
+{
+    for (auto& selection : selections)
+    {
+        navigate (selection.head, target, direction);
+
+        if (! fixingTail)
+            selection.tail = selection.head;
+    }
 }
 
 juce_wchar mcl::TextDocument::getCharacter (Point<int> index) const
@@ -1323,10 +1355,20 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
     using Navigation = TextDocument::Navigation;
+    using Target     = TextDocument::Target;
+    using Direction  = TextDocument::Direction;
 
     auto nav = [this] (TextDocument::Navigation navigation)
     {
         document.setSelections (document.getSelections (navigation));
+        translateToEnsureCaretIsVisible();
+        updateSelections();
+        return true;
+    };
+
+    auto nav2 = [this] (Target target, Direction direction)
+    {
+        document.navigateSelections (target, direction);
         translateToEnsureCaretIsVisible();
         updateSelections();
         return true;
@@ -1367,19 +1409,29 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     }
     else if (key.getModifiers().isAltDown())
     {
-        if (key.isKeyCode (KeyPress::rightKey)) return nav (Navigation::forwardByWord);
-        if (key.isKeyCode (KeyPress::leftKey )) return nav (Navigation::backwardByWord);
+        if (key.isKeyCode (KeyPress::rightKey)) return nav2 (Target::whitespace, Direction::forward);
+        if (key.isKeyCode (KeyPress::leftKey )) return nav2 (Target::whitespace, Direction::backward);
+    }
+    else if (key.getModifiers().isCtrlDown())
+    {
+        if (key.isKeyCode (KeyPress::rightKey)) return nav2 (Target::word, Direction::forward);
+        if (key.isKeyCode (KeyPress::leftKey )) return nav2 (Target::word, Direction::backward);
+    }
+    else if (key.getModifiers().isCommandDown())
+    {
+        if (key.isKeyCode (KeyPress::downKey)) return nav2 (Target::document, Direction::forward);
+        if (key.isKeyCode (KeyPress::upKey  )) return nav2 (Target::document, Direction::backward);
     }
     else
     {
-        if (key.isKeyCode (KeyPress::rightKey)) return nav (Navigation::forwardByChar);
-        if (key.isKeyCode (KeyPress::leftKey )) return nav (Navigation::backwardByChar);
+        if (key.isKeyCode (KeyPress::rightKey)) return nav2 (Target::character, Direction::forward);
+        if (key.isKeyCode (KeyPress::leftKey )) return nav2 (Target::character, Direction::backward);
         if (key.isKeyCode (KeyPress::downKey )) return nav (Navigation::forwardByLine);
         if (key.isKeyCode (KeyPress::upKey   )) return nav (Navigation::backwardByLine);
     }
 
-    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return nav (Navigation::toLineStart);
-    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return nav (Navigation::toLineEnd);
+    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return nav2 (Target::endline, Direction::forward);
+    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return nav2 (Target::endline, Direction::backward);
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Navigation::wholeDocument);
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Navigation::wholeLine);
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
