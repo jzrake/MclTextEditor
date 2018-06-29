@@ -803,51 +803,6 @@ bool mcl::TextDocument::prevRow (Point<int>& index) const
     return false;
 }
 
-bool mcl::TextDocument::nextWord (Point<int>& index) const
-{
-    if (index == getEnd())
-    {
-        return false;
-    }
-
-    if (CharacterFunctions::isWhitespace (getCharacter (index)))
-    {
-        while (next (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
-    }
-
-    while (next (index))
-    {
-        if (CharacterFunctions::isWhitespace (getCharacter (index)))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool mcl::TextDocument::prevWord (Point<int>& index) const
-{
-    if (! prev (index))
-    {
-        return false;
-    }
-
-    if (CharacterFunctions::isWhitespace (getCharacter (index)))
-    {
-        while (prev (index) && CharacterFunctions::isWhitespace (getCharacter (index))) {}
-    }
-
-    while (prev (index))
-    {
-        if (CharacterFunctions::isWhitespace (getCharacter (index)))
-        {
-            next (index);
-            return true;
-        }
-    }
-    return false;
-}
-
 void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction direction) const
 {
     std::function<bool(Point<int>&)> advance;
@@ -858,11 +813,19 @@ void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction 
 
     switch (direction)
     {
-        case Direction::forward :
+        case Direction::forwardRow:
+            advance = [this] (Point<int>& i) { return nextRow (i); };
+            get     = [this] (Point<int> i) { return getCharacter (i); };
+            break;
+        case Direction::backwardRow:
+            advance = [this] (Point<int>& i) { return prevRow (i); };
+            get     = [this] (Point<int> i) { prev (i); return getCharacter (i); };
+            break;
+        case Direction::forwardCol:
             advance = [this] (Point<int>& i) { return next (i); };
             get     = [this] (Point<int> i) { return getCharacter (i); };
             break;
-        case Direction::backward:
+        case Direction::backwardCol:
             advance = [this] (Point<int>& i) { return prev (i); };
             get     = [this] (Point<int> i) { prev (i); return getCharacter (i); };
             break;
@@ -873,24 +836,25 @@ void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction 
         case Target::whitespace : while (! CF::isWhitespace (get (i)) && advance (i)) { } break;
         case Target::punctuation: while (! punctuation.containsChar (get (i)) && advance (i)) { } break;
         case Target::character  : advance (i); break;
-        case Target::subword    : break;
+        case Target::subword    : jassertfalse; break; // IMPLEMENT ME
         case Target::word       : while (CF::isWhitespace (get (i)) && advance (i)) { } break;
-        case Target::sentence   : break;
-        case Target::endline    : while (get (i) != '\n' && advance (i)) { } break;
-        case Target::paragraph  : break;
-        case Target::scope      : break;
+        case Target::line       : while (get (i) != '\n' && advance (i)) { } break;
+        case Target::paragraph  : while (getNumColumns (i.x) > 0 && advance (i)) {} break;
+        case Target::scope      : jassertfalse; break; // IMPLEMENT ME
         case Target::document   : while (advance (i)) { } break;
     }
 }
 
-void mcl::TextDocument::navigateSelections (Target target, Direction direction, bool fixingTail)
+void mcl::TextDocument::navigateSelections (Target target, Direction direction, Selection::Part part)
 {
     for (auto& selection : selections)
     {
-        navigate (selection.head, target, direction);
-
-        if (! fixingTail)
-            selection.tail = selection.head;
+        switch (part)
+        {
+            case Selection::Part::head: navigate (selection.head, target, direction); break;
+            case Selection::Part::tail: navigate (selection.tail, target, direction); break;
+            case Selection::Part::both: navigate (selection.head, target, direction); selection.tail = selection.head; break;
+        }
     }
 }
 
@@ -906,50 +870,14 @@ juce_wchar mcl::TextDocument::getCharacter (Point<int> index) const
     return lines[index.x].getCharPointer()[index.y];
 }
 
-mcl::Selection mcl::TextDocument::getSelection (int index, Navigation navigation, bool fixingTail) const
+const mcl::Selection& mcl::TextDocument::getSelection (int index) const
 {
-    auto s = selections[index];
-
-    auto post = [this, fixingTail] (auto& T)
-    {
-        if (T.head == getEnd())
-        {
-            prev (T.head);
-        }
-        if (! fixingTail)
-        {
-            T.tail = T.head;
-        }
-        return T;
-    };
-
-    switch (navigation)
-    {
-        case Navigation::identity: return s;
-        case Navigation::wholeDocument : { s.head = { 0, 0 }; s.tail = getEnd(); } return post (s);
-        case Navigation::wholeLine     : { s.head.y = 0; s.tail.y = getNumColumns (s.tail.x); } return post (s);
-        case Navigation::wholeWord     : { prevWord (s.head); nextWord (s.tail); } return post (s);
-        case Navigation::forwardByChar : next (s.head); return post (s);
-        case Navigation::backwardByChar: prev (s.head); return post (s);
-        case Navigation::forwardByWord : nextWord (s.head); return post (s);
-        case Navigation::backwardByWord: prevWord (s.head); return post (s);
-        case Navigation::forwardByLine : nextRow (s.head); return post (s);
-        case Navigation::backwardByLine: prevRow (s.head); return post (s);
-        case Navigation::toLineStart   : s.head.y = 0; return post (s);
-        case Navigation::toLineEnd     : s.head.y = getNumColumns (s.head.x); return post (s);
-    }
+    return selections.getReference (index);
 }
 
-Array<mcl::Selection> mcl::TextDocument::getSelections (Navigation navigation, bool fixingTail) const
+const Array<mcl::Selection>& mcl::TextDocument::getSelections() const
 {
-    auto resultingSelections = Array<Selection>();
-    resultingSelections.ensureStorageAllocated (getNumSelections());
-
-    for (int n = 0; n < getNumSelections(); ++n)
-    {
-        resultingSelections.add (getSelection (n, navigation, fixingTail));
-    }
-    return resultingSelections;
+    return selections;
 }
 
 String mcl::TextDocument::getSelectionContent (Selection s) const
@@ -1325,11 +1253,15 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     if (e.getNumberOfClicks() == 2)
     {
-        document.setSelections (document.getSelections (TextDocument::Navigation::wholeWord, true).getFirst());
+        document.navigateSelections (TextDocument::Target::whitespace, TextDocument::Direction::backwardCol, Selection::Part::head);
+        document.navigateSelections (TextDocument::Target::whitespace, TextDocument::Direction::forwardCol,  Selection::Part::tail);
+        updateSelections();
     }
     else if (e.getNumberOfClicks() == 3)
     {
-        document.setSelections (document.getSelections (TextDocument::Navigation::wholeLine, true).getFirst());
+        document.navigateSelections (TextDocument::Target::line, TextDocument::Direction::backwardCol, Selection::Part::head);
+        document.navigateSelections (TextDocument::Target::line, TextDocument::Direction::forwardCol,  Selection::Part::tail);
+        updateSelections();
     }
     updateSelections();
 }
@@ -1354,40 +1286,44 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
-    using Navigation = TextDocument::Navigation;
+    // =======================================================================================
     using Target     = TextDocument::Target;
     using Direction  = TextDocument::Direction;
+    auto mods        = key.getModifiers();
+    auto isTab       = tabKeyUsed && (key.getTextCharacter() == '\t');
 
-    auto nav = [this] (TextDocument::Navigation navigation)
+
+    // =======================================================================================
+    auto nav = [this, mods] (Target target, Direction direction)
     {
-        document.setSelections (document.getSelections (navigation));
+        if (mods.isShiftDown())
+            document.navigateSelections (target, direction, Selection::Part::head);
+        else
+            document.navigateSelections (target, direction, Selection::Part::both);
+
+        translateToEnsureCaretIsVisible();
+        updateSelections();
+        return true;
+    };
+    auto expand = [this] (Target target)
+    {
+        document.navigateSelections (target, Direction::backwardCol, Selection::Part::head);
+        document.navigateSelections (target, Direction::forwardCol,  Selection::Part::tail);
+        updateSelections();
+        return true;
+    };
+    auto addCaret = [this] (Target target, Direction direction)
+    {
+        auto s = document.getSelections().getLast();
+        document.navigate (s.head, target, direction);
+        document.addSelection (s);
         translateToEnsureCaretIsVisible();
         updateSelections();
         return true;
     };
 
-    auto nav2 = [this] (Target target, Direction direction)
-    {
-        document.navigateSelections (target, direction);
-        translateToEnsureCaretIsVisible();
-        updateSelections();
-        return true;
-    };
 
-    auto expand = [this] (TextDocument::Navigation navigation)
-    {
-        document.setSelections (document.getSelections (navigation, true));
-        updateSelections();
-        return true;
-    };
-
-    auto addCaret = [this] (TextDocument::Navigation navigation)
-    {
-        document.addSelection (document.getSelection (document.getNumSelections() - 1, navigation));
-        updateSelections();
-        return true;
-    };
-
+    // =======================================================================================
     if (key.isKeyCode (KeyPress::escapeKey))
     {
         document.setSelections (document.getSelections().getLast());
@@ -1395,84 +1331,43 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     }
 
-    if (key.getModifiers().isShiftDown() && key.getModifiers().isCtrlDown())
+    if (mods.isCtrlDown() && mods.isAltDown())
     {
-        if (key.isKeyCode (KeyPress::upKey  )) return addCaret (Navigation::backwardByLine);
-        if (key.isKeyCode (KeyPress::downKey)) return addCaret (Navigation::forwardByLine);
+        if (key.isKeyCode (KeyPress::downKey)) return addCaret (Target::character, Direction::forwardRow);
+        if (key.isKeyCode (KeyPress::upKey  )) return addCaret (Target::character, Direction::backwardRow);
     }
-    else if (key.getModifiers().isShiftDown())
+    if (mods.isCtrlDown())
     {
-        if (key.isKeyCode (KeyPress::rightKey )) return expand (Navigation::forwardByChar);
-        if (key.isKeyCode (KeyPress::leftKey  )) return expand (Navigation::backwardByChar);
-        if (key.isKeyCode (KeyPress::downKey  )) return expand (Navigation::forwardByLine);
-        if (key.isKeyCode (KeyPress::upKey    )) return expand (Navigation::backwardByLine);
+        if (key.isKeyCode (KeyPress::rightKey)) return nav (Target::whitespace, Direction::forwardCol)  && nav (Target::word, Direction::forwardCol);
+        if (key.isKeyCode (KeyPress::leftKey )) return nav (Target::whitespace, Direction::backwardCol) && nav (Target::word, Direction::backwardCol);
+        if (key.isKeyCode (KeyPress::downKey )) return nav (Target::word, Direction::forwardCol)  && nav (Target::paragraph, Direction::forwardRow);
+        if (key.isKeyCode (KeyPress::upKey   )) return nav (Target::word, Direction::backwardCol) && nav (Target::paragraph, Direction::backwardRow);
+
+        if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0) ||
+            key == KeyPress ('e', ModifierKeys::ctrlModifier | ModifierKeys::shiftModifier, 0))
+            return nav (Target::line, Direction::forwardCol);
+
+        if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0) ||
+            key == KeyPress ('a', ModifierKeys::ctrlModifier | ModifierKeys::shiftModifier, 0))
+            return nav (Target::line, Direction::backwardCol);
     }
-    else if (key.getModifiers().isAltDown())
+    if (mods.isCommandDown())
     {
-        if (key.isKeyCode (KeyPress::rightKey)) return nav2 (Target::whitespace, Direction::forward);
-        if (key.isKeyCode (KeyPress::leftKey )) return nav2 (Target::whitespace, Direction::backward);
-    }
-    else if (key.getModifiers().isCtrlDown())
-    {
-        if (key.isKeyCode (KeyPress::rightKey)) return nav2 (Target::word, Direction::forward);
-        if (key.isKeyCode (KeyPress::leftKey )) return nav2 (Target::word, Direction::backward);
-    }
-    else if (key.getModifiers().isCommandDown())
-    {
-        if (key.isKeyCode (KeyPress::downKey)) return nav2 (Target::document, Direction::forward);
-        if (key.isKeyCode (KeyPress::upKey  )) return nav2 (Target::document, Direction::backward);
-    }
-    else
-    {
-        if (key.isKeyCode (KeyPress::rightKey)) return nav2 (Target::character, Direction::forward);
-        if (key.isKeyCode (KeyPress::leftKey )) return nav2 (Target::character, Direction::backward);
-        if (key.isKeyCode (KeyPress::downKey )) return nav (Navigation::forwardByLine);
-        if (key.isKeyCode (KeyPress::upKey   )) return nav (Navigation::backwardByLine);
+        if (key.isKeyCode (KeyPress::downKey)) return nav (Target::document, Direction::forwardRow);
+        if (key.isKeyCode (KeyPress::upKey  )) return nav (Target::document, Direction::backwardRow);
     }
 
-    if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0)) return nav2 (Target::endline, Direction::forward);
-    if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0)) return nav2 (Target::endline, Direction::backward);
-    if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Navigation::wholeDocument);
-    if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Navigation::wholeLine);
+    if (key.isKeyCode (KeyPress::rightKey)) return nav (Target::character, Direction::forwardCol);
+    if (key.isKeyCode (KeyPress::leftKey )) return nav (Target::character, Direction::backwardCol);
+    if (key.isKeyCode (KeyPress::downKey )) return nav (Target::character, Direction::forwardRow);
+    if (key.isKeyCode (KeyPress::upKey   )) return nav (Target::character, Direction::backwardRow);
+
+    if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
+    if (key == KeyPress ('d', ModifierKeys::commandModifier, 0)) return expand (Target::whitespace);
+    if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
-    auto insert = [this] (String insertion)
-    {
-        double now = Time::getApproximateMillisecondCounter();
-
-        if (now > lastTransactionTime + 400)
-        {
-            lastTransactionTime = Time::getApproximateMillisecondCounter();
-            undo.beginNewTransaction();
-        }
-
-        for (int n = 0; n < document.getNumSelections(); ++n)
-        {
-            Transaction t;
-            t.content = insertion;
-            t.selection = document.getSelection (n);
-
-            auto callback = [this, n] (const Transaction& r)
-            {
-                switch (r.direction) // NB: switching on the direction of the reciprocal here
-                {
-                    case Transaction::Direction::forward: document.setSelection (n, r.selection); break;
-                    case Transaction::Direction::reverse: document.setSelection (n, r.selection.tail); break;
-                }
-
-                if (! r.affectedArea.isEmpty())
-                {
-                    repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
-                }
-            };
-            undo.perform (t.on (document, callback));
-        }
-        updateSelections();
-        return true;
-    };
-
-    bool isTab = tabKeyUsed && (key.getTextCharacter() == '\t');
 
     if (key == KeyPress ('x', ModifierKeys::commandModifier, 0))
     {
@@ -1491,6 +1386,41 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
 
     return false;
+}
+
+bool mcl::TextEditor::insert (const juce::String& content)
+{
+    double now = Time::getApproximateMillisecondCounter();
+
+    if (now > lastTransactionTime + 400)
+    {
+        lastTransactionTime = Time::getApproximateMillisecondCounter();
+        undo.beginNewTransaction();
+    }
+    
+    for (int n = 0; n < document.getNumSelections(); ++n)
+    {
+        Transaction t;
+        t.content = content;
+        t.selection = document.getSelection (n);
+        
+        auto callback = [this, n] (const Transaction& r)
+        {
+            switch (r.direction) // NB: switching on the direction of the reciprocal here
+            {
+                case Transaction::Direction::forward: document.setSelection (n, r.selection); break;
+                case Transaction::Direction::reverse: document.setSelection (n, r.selection.tail); break;
+            }
+
+            if (! r.affectedArea.isEmpty())
+            {
+                repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
+            }
+        };
+        undo.perform (t.on (document, callback));
+    }
+    updateSelections();
+    return true;
 }
 
 MouseCursor mcl::TextEditor::getMouseCursor()
@@ -1513,7 +1443,7 @@ void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
     auto T = document.getVerticalPosition (rows.getStart(), TextDocument::Metric::ascent);
     auto B = document.getVerticalPosition (rows.getEnd(),   TextDocument::Metric::top);
     auto W = 10000;
-    auto bounds = Rectangle<float>::leftTopRightBottom (0, T, W, B);
+    auto bounds = Rectangle<float>::leftTopRightBottom (TEXT_INDENT, T, W, B);
     auto content = document.getSelectionContent (Selection (rows.getStart(), 0, rows.getEnd(), 0));
 
     AttributedString s;

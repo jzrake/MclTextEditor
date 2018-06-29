@@ -69,7 +69,7 @@ struct mcl::Selection
 {
     enum class Part
     {
-        head, tail,
+        head, tail, both,
     };
 
     Selection() {}
@@ -278,18 +278,6 @@ public:
         bottom,
     };
 
-    enum class Navigation
-    {
-        identity,
-        wholeDocument,
-        wholeLine,
-        wholeWord,
-        forwardByChar, backwardByChar,
-        forwardByWord, backwardByWord,
-        forwardByLine, backwardByLine,
-        toLineStart, toLineEnd,
-    };
-
     /**
      Text categories the caret may be targeted to. For forward jumps,
      the caret is moved to be immediately in front of the first character
@@ -303,13 +291,12 @@ public:
         character,
         subword,
         word,
-        sentence,
-        endline,
+        line,
         paragraph,
         scope,
         document,
     };
-    enum class Direction { forward, backward };
+    enum class Direction { forwardRow, backwardRow, forwardCol, backwardCol, };
 
     struct RowData
     {
@@ -437,21 +424,12 @@ public:
     /** Move the given index to the previous row if possible. */
     bool prevRow (juce::Point<int>& index) const;
 
-    /** Move the given index to the next word if possible. */
-    bool nextWord (juce::Point<int>& index) const;
-
-    /** Move the given index to the previous word if possible. */
-    bool prevWord (juce::Point<int>& index) const;
-
     /** Navigate an index to the first character of the given categaory.
      */
     void navigate (juce::Point<int>& index, Target target, Direction direction) const;
 
-    /** Navigate all selection heads. The selections tails are moved to the
-        head location unless fixingTail is true, in which case the selection
-        is expanded or contracted.
-     */
-    void navigateSelections (Target target, Direction direction, bool fixingTail=false);
+    /** Navigate all selections. */
+    void navigateSelections (Target target, Direction direction, Selection::Part part);
 
     /** Return the character at the given index. */
     juce::juce_wchar getCharacter (juce::Point<int> index) const;
@@ -465,14 +443,11 @@ public:
     /** Return a line in the document. */
     const juce::String& getLine (int lineIndex) const { return lines[lineIndex]; }
 
-    /** Return one of the current selections, possibly operated on. */
-    Selection getSelection (int index,
-                            Navigation navigation=Navigation::identity,
-                            bool fixingTail=false) const;
+    /** Return one of the current selections. */
+    const Selection& getSelection (int index) const;
 
-    /** Return the current selection state, possibly operated on. */
-    juce::Array<Selection> getSelections (Navigation navigation=Navigation::identity,
-                                          bool fixingTail=false) const;
+    /** Return the current selection state. */
+    const juce::Array<Selection>& getSelections() const;
 
     /** Return the content within the given selection, with newlines if the
         selection spans muliple lines.
@@ -604,6 +579,7 @@ public:
 
 private:
     //==========================================================================
+    bool insert (const juce::String& content);
     void updateViewTransform();
     void updateSelections();
     void translateToEnsureCaretIsVisible();
@@ -616,7 +592,7 @@ private:
     bool enableSyntaxHighlighting = true;
     bool allowCoreGraphics = true;
     bool useOpenGLRendering = false;
-    bool drawProfilingInfo = true;
+    bool drawProfilingInfo = false;
     float accumulatedTimeInPaint = 0.f;
     float lastTimeInPaint = 0.f;
     float lastTokeniserTime = 0.f;
