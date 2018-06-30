@@ -233,7 +233,7 @@ public:
     void removeRange (int startIndex, int numberToRemove) { lines.removeRange (startIndex, numberToRemove); }
     const juce::String& operator[] (int index) const;
 
-    int getToken (int row, int col) const;
+    int getToken (int row, int col, int defaultIfOutOfBounds) const;
     void clearTokens (int index);
     void applyTokens (int index, Selection zone);
     juce::GlyphArrangement getGlyphs (int index,

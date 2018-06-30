@@ -455,11 +455,11 @@ const String& mcl::GlyphArrangementArray::operator[] (int index) const
     return empty;
 }
 
-int mcl::GlyphArrangementArray::getToken (int row, int col) const
+int mcl::GlyphArrangementArray::getToken (int row, int col, int defaultIfOutOfBounds) const
 {
     if (! isPositiveAndBelow (row, lines.size()))
     {
-        return 0;
+        return defaultIfOutOfBounds;
     }
     return lines.getReference (row).tokens[col];
 }
@@ -519,18 +519,21 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
     if (DEBUG_TOKENS)
     {
         String line;
+        String hex ("0123456789abcdefg");
 
         for (auto token : entry.tokens)
-        {
-            line << String (token);
-        }
+            line << hex[token % 16];
+
+        if (withTrailingSpace)
+            line << " ";
+
         glyphSource.clear();
         glyphSource.addLineOfText (font, line, 0.f, 0.f);
     }
 
     for (int n = 0; n < glyphSource.getNumGlyphs(); ++n)
     {
-        //if (token == -1 || entry.tokens.getUnchecked (n) == token)
+        // if (token == -1 || entry.tokens.getUnchecked (n) == token)
         if (token == -1 || entry.tokens[n] == token)
         {
             auto glyph = glyphSource.getGlyph (n);
@@ -857,13 +860,16 @@ void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction 
         case Target::word       : while (CF::isWhitespace (get (i)) && advance (i)) { } break;
         case Target::token:
         {
-            int s = lines.getToken (i.x, i.y);
+            int s = lines.getToken (i.x, i.y, -1);
             int t = s;
 
             while (s == t && advance (i))
             {
-                s = t;
-                t = lines.getToken (i.x, i.y);
+                if (getNumColumns (i.x) > 0)
+                {
+                    s = t;
+                    t = lines.getToken (i.x, i.y, s);
+                }
             }
             break;
         }
@@ -1434,13 +1440,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
-    if (key == KeyPress ('p', ModifierKeys::commandModifier, 0))
-    {
-        auto i = document.getSelections().getFirst().head;
-        DBG("token under the caret is: " << document.lines.getToken (i.x, i.y));
-        return true;
-    }
-
     if (key == KeyPress ('x', ModifierKeys::commandModifier, 0))
     {
         SystemClipboard::copyTextToClipboard (document.getSelectionContent (document.getSelections().getFirst()));
@@ -1624,11 +1623,12 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
     {
         auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
         auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+        auto index = Point<int> (rows.getStart(), 0);
+        document.navigate (index, TextDocument::Target::token, TextDocument::Direction::backwardRow);
 
-        auto zones = Array<Selection>();
-        auto it = TextDocument::Iterator (document, { rows.getStart(), 0 });
+        auto it = TextDocument::Iterator (document, index);
         auto previous = it.getIndex();
-
+        auto zones = Array<Selection>();
         auto start = Time::getMillisecondCounterHiRes();
 
         while (it.getIndex().x < rows.getEnd() && ! it.isEOF())
