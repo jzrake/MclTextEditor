@@ -533,8 +533,7 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
 
     for (int n = 0; n < glyphSource.getNumGlyphs(); ++n)
     {
-        // if (token == -1 || entry.tokens.getUnchecked (n) == token)
-        if (token == -1 || entry.tokens[n] == token)
+        if (token == -1 || entry.tokens.getUnchecked (n) == token)
         {
             auto glyph = glyphSource.getGlyph (n);
             glyph.moveBy (TEXT_INDENT, baseline);
@@ -1357,6 +1356,13 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         updateSelections();
         return true;
     };
+    auto expandBack = [this, mods] (Target target, Direction direction)
+    {
+        document.navigateSelections (target, direction, Selection::Part::head);
+        translateToEnsureCaretIsVisible();
+        updateSelections();
+        return true;
+    };
     auto expand = [this] (Target target)
     {
         document.navigateSelections (target, Direction::backwardCol, Selection::Part::head);
@@ -1412,6 +1418,10 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         if (key.isKeyCode (KeyPress::leftKey )) return nav (Target::whitespace, Direction::backwardCol) && nav (Target::word, Direction::backwardCol);
         if (key.isKeyCode (KeyPress::downKey )) return nav (Target::word, Direction::forwardCol)  && nav (Target::paragraph, Direction::forwardRow);
         if (key.isKeyCode (KeyPress::upKey   )) return nav (Target::word, Direction::backwardCol) && nav (Target::paragraph, Direction::backwardRow);
+
+        if (key.isKeyCode (KeyPress::backspaceKey)) return (   expandBack (Target::whitespace, Direction::backwardCol)
+                                                            && expandBack (Target::word, Direction::backwardCol)
+                                                            && insert (""));
 
         if (key == KeyPress ('e', ModifierKeys::ctrlModifier, 0) ||
             key == KeyPress ('e', ModifierKeys::ctrlModifier | ModifierKeys::shiftModifier, 0))
