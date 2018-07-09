@@ -136,6 +136,7 @@ void mcl::GutterComponent::paint (Graphics& g)
     if (transform.getTranslationX() < GUTTER_WIDTH)
     {
         auto shadowRect = getLocalBounds().withLeft (GUTTER_WIDTH).withWidth (12);
+
         auto gradient = ColourGradient::horizontal (ln.contrasting().withAlpha (0.3f),
                                                     Colours::transparentBlack, shadowRect);
         g.setFillType (gradient);
@@ -1104,7 +1105,9 @@ mcl::TextEditor::TextEditor()
 
 mcl::TextEditor::~TextEditor()
 {
+#if MCL_ENABLE_OPEN_GL
     context.detach();
+#endif
 }
 
 void mcl::TextEditor::setFont (Font font)
@@ -1260,7 +1263,12 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
             case 3: renderScheme = RenderScheme::usingGlyphArrangement; break;
             case 4: document.lines.cacheGlyphArrangement = ! document.lines.cacheGlyphArrangement; break;
             case 5: allowCoreGraphics = ! allowCoreGraphics; break;
+#if MCL_ENABLE_OPEN_GL
             case 6: useOpenGLRendering = ! useOpenGLRendering; if (useOpenGLRendering) context.attachTo (*this); else context.detach(); break;
+#else
+			// You haven't enabled open GL
+			case 6: jassertfalse; break;
+#endif
             case 7: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
             case 8: drawProfilingInfo = ! drawProfilingInfo; break;
             case 9: DEBUG_TOKENS = ! DEBUG_TOKENS; break;

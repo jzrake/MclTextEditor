@@ -10,11 +10,7 @@
  */
 
 #pragma once
-#define DONT_SET_USING_JUCE_NAMESPACE 1
 #include "JuceHeader.h"
-
-
-
 
 namespace mcl {
     /**
@@ -617,6 +613,9 @@ private:
     juce::Point<float> translation;
     juce::AffineTransform transform;
     juce::UndoManager undo;
+
+#if MCL_ENABLE_OPEN_GL
     juce::OpenGLContext context;
+#endif
 };
 
